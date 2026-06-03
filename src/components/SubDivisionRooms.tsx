@@ -209,8 +209,10 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                       </div>
 
                       {occupant && (
-                        <div className="bg-slate-950/90 border border-[#8d6e63]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center text-yellow-100">
-                          {occupant.name.split(' ')[0]}
+                        <div className="bg-slate-950/90 border border-[#8d6e63]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center">
+                          <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                            {occupant.name.split(' ')[0]}
+                          </span>
                           <span className="block text-[5px] text-slate-400 leading-none mt-0.5">{occupant.current_status}</span>
                         </div>
                       )}
@@ -226,40 +228,47 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           {/* ROWING BOAT VIEW */}
           {activeRoom === 'boat' && (
             <div className="map-scroll-container">
-              <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded rowing-boat-sea min-w-[750px] lg:min-w-0" style={{
-                backgroundImage: 'radial-gradient(#1f3557 1px, transparent 1px)',
-                backgroundSize: '30px 30px'
-              }}>
+              <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded sea-waves-scroll min-w-[750px] lg:min-w-0">
               
               {/* Parallax Clouds & Water waves */}
               <div className="clouds"></div>
               <div className="waves"></div>
 
               {/* BOAT FRAME (With rock animation) */}
-              <div className="w-[50%] h-[82%] bg-[#8b5a2b] border-4 border-[#cd853f] rounded-[40px] relative shadow-2xl flex items-center justify-center animate-[boat-rock_4s_ease-in-out_infinite] mx-auto z-10">
+              <div
+                style={{
+                  backgroundImage: 'url(/assets/rooms/boat.png)',
+                  backgroundSize: '100% 100%',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                  aspectRatio: '666 / 375'
+                }}
+                className="w-[88%] max-w-[850px] relative flex items-center justify-center animate-[boat-rock_4s_ease-in-out_infinite] mx-auto z-10"
+              >
                 
-                {/* Wood floor pattern */}
-                <div className="absolute inset-y-[10%] inset-x-[15%] bg-[#5c3a21] rounded-[30px] border border-[#3e251c] opacity-90 z-0"></div>
-
-                {/* Mast and Sail shadow */}
-                <div className="absolute top-[35%] bottom-[35%] left-1/2 -translate-x-1/2 w-1.5 bg-[#402717] z-20"></div>
-                <div className="absolute top-[40%] bottom-[50%] left-1/2 -translate-x-1/2 w-12 bg-white/10 border border-white/20 rounded z-20"></div>
-
-                {/* NOTICE BOARD (NoticeBoard anchor) */}
+                {/* NOTICE BOARD (Map Table overlay over background) */}
                 <div
                   onClick={() => setShowWhiteboard(true)}
-                  className="absolute top-[22%] left-[50%] -translate-x-1/2 w-24 h-10 bg-[#5c4033] border-2 border-[#cd853f] rounded shadow-lg cursor-pointer flex items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 z-30 group"
+                  style={{ left: '46.5%', top: '57%', width: '6.5%', height: '8%' }}
+                  className="absolute cursor-pointer border-2 border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-30 group"
+                  title="Notice Board"
                 >
-                  <div className="bg-[#fcf8e3] w-[90%] h-[75%] rounded border border-black flex items-center justify-center">
-                    <span className="text-[7.5px] font-bold text-slate-800 font-serif">NOTICE BOARD</span>
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-950/90 text-[8px] text-amber-400 border border-amber-500/50 px-1.5 py-0.5 rounded whitespace-nowrap z-50 pointer-events-none font-bold">
+                    NOTICE BOARD (MAP TABLE)
                   </div>
                 </div>
 
-                {/* Guest Seats (Visitor bow/stern) */}
-                <div className="absolute top-[12%] left-[40%] w-[20%] h-[7%] bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] flex items-center justify-center text-[#ddb892] z-10">
+                {/* Guest Seats (Visitor bow/stern in horizontal orientation) */}
+                <div 
+                  style={{ left: '15%', top: '54%' }}
+                  className="absolute transform -translate-x-1/2 bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] px-1.5 py-0.5 flex items-center justify-center text-[#ddb892] font-bold z-10"
+                >
                   BOW
                 </div>
-                <div className="absolute bottom-[12%] left-[40%] w-[20%] h-[7%] bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] flex items-center justify-center text-[#ddb892] z-10">
+                <div 
+                  style={{ left: '92%', top: '37%' }}
+                  className="absolute transform -translate-x-1/2 bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] px-1.5 py-0.5 flex items-center justify-center text-[#ddb892] font-bold z-10"
+                >
                   STERN
                 </div>
 
@@ -309,8 +318,10 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                       </div>
 
                       {occupant && (
-                        <div className="bg-slate-950/90 border border-[#cd853f]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center text-yellow-100">
-                          {occupant.name.split(' ')[0]}
+                        <div className="bg-slate-950/90 border border-[#cd853f]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center">
+                          <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                            {occupant.name.split(' ')[0]}
+                          </span>
                           <span className="block text-[5px] text-slate-400 leading-none mt-0.5">{occupant.current_status}</span>
                         </div>
                       )}
@@ -419,6 +430,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           roomId={activeRoom}
           currentProfile={currentProfile}
           onClose={() => setShowWhiteboard(false)}
+          profiles={profiles}
         />
       )}
 

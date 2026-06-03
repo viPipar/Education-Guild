@@ -32,6 +32,7 @@ export interface Profile {
     hair: string;
     outfit: string;
     accessory: string;
+    nameColor?: string;
   };
   pet_id: string;
   current_status: string;
@@ -370,7 +371,8 @@ export const db = {
 
   getSeatsSync(roomId: string, profiles: Profile[]): Seat[] {
     let count = 22;
-    if (roomId === 'carriage' || roomId === 'boat') count = 12;
+    if (roomId === 'guild_hall') count = 20;
+    else if (roomId === 'carriage' || roomId === 'boat') count = 12;
     else if (roomId === 'tavern') count = 26;
     else if (roomId === 'wilderness') count = 20;
     else if (roomId === 'header') count = 5;
@@ -383,10 +385,40 @@ export const db = {
       // Coordinate logic for rendering layout
       let x = 0, y = 0;
       if (roomId === 'guild_hall') {
-        // Oval arrangement around a center table (x: 50%, y: 50%)
-        const angle = (i / count) * Math.PI * 2;
-        x = Math.round(50 + Math.cos(angle) * 38); // percentage
-        y = Math.round(50 + Math.sin(angle) * 28);
+        // Pre-defined coordinates to perfectly align with the chairs in the background image
+        // Total 20 chairs: 4 on top, 6 on right, 4 on bottom, 6 on left
+        const guildHallCoordinates = [
+          // Top row (4 chairs)
+          { x: 33.5, y: 28 },
+          { x: 45.0, y: 28 },
+          { x: 55.5, y: 28 },
+          { x: 67.0, y: 28 },
+          
+          // Right curve (6 chairs)
+          { x: 77.0, y: 34 },
+          { x: 84.5, y: 44 },
+          { x: 91.0, y: 60 },
+          { x: 88.5, y: 70 },
+          { x: 84.0, y: 78 },
+          { x: 77.0, y: 85 },
+          
+          // Bottom row (4 chairs)
+          { x: 67.0, y: 89 },
+          { x: 55.5, y: 89 },
+          { x: 45.0, y: 89 },
+          { x: 33.5, y: 89 },
+          
+          // Left curve (6 chairs)
+          { x: 24.0, y: 85 },
+          { x: 17.0, y: 78 },
+          { x: 12.0, y: 70 },
+          { x: 10.0, y: 60 },
+          { x: 17.0, y: 44 },
+          { x: 24.0, y: 34 }
+        ];
+        const coord = guildHallCoordinates[i] || { x: 50, y: 50 };
+        x = coord.x;
+        y = coord.y;
       } else if (roomId === 'carriage') {
         // Two facing rows (x: 30% and 70%) with a walkway in the middle
         const row = i % 2;
@@ -394,11 +426,28 @@ export const db = {
         x = row === 0 ? 25 : 75;
         y = 20 + index * 13;
       } else if (roomId === 'boat') {
-        // Rows along the edge of the boat
-        const row = i % 2;
-        const index = Math.floor(i / 2);
-        x = row === 0 ? 35 : 65;
-        y = 25 + index * 12;
+        // Pre-defined coordinates to perfectly align with the new horizontal boat.png image
+        // 12 seats: 10 on main deck (2 rows of 5), 2 on raised captain's deck
+        const boatCoordinates = [
+          // Main Deck Top Row (5 seats)
+          { x: 25, y: 57 },
+          { x: 36, y: 57 },
+          { x: 47, y: 57 },
+          { x: 58, y: 57 },
+          { x: 69, y: 57 },
+          // Main Deck Bottom Row (5 seats)
+          { x: 25, y: 74 },
+          { x: 36, y: 74 },
+          { x: 47, y: 74 },
+          { x: 58, y: 74 },
+          { x: 69, y: 74 },
+          // Captain's Deck (2 seats)
+          { x: 90, y: 52 }, // standing near helm / top of stairs
+          { x: 93, y: 66 }  // at captain's desk chair
+        ];
+        const coord = boatCoordinates[i] || { x: 50, y: 50 };
+        x = coord.x;
+        y = coord.y;
       } else if (roomId === 'wilderness') {
         // 20 seats in an upward-opening semicircle (bottom half, facing boss above)
         // arc goes left→top-center→right, y decreases at apex
@@ -993,13 +1042,16 @@ export const db = {
   // ==========================================
   // Coin Management
   // ==========================================
-  async giveCoins(userId: string, amount: number): Promise<boolean> {
+  async giveCoins(userId: string, amount: number): Promise<number | null> {
     const profile = await this.getProfile(userId);
-    if (!profile) return false;
+    if (!profile) return null;
     const newCoins = Math.max(0, (profile.coins || 0) + amount);
     const updated = await this.updateProfile(userId, { coins: newCoins });
-    if (updated) this.broadcast('profile_update', { id: userId, coins: newCoins });
-    return !!updated;
+    if (updated) {
+      this.broadcast('profile_update', { id: userId, coins: newCoins });
+      return newCoins;
+    }
+    return null;
   },
 
   async giveCoinsToAll(amount: number): Promise<void> {
@@ -1008,14 +1060,17 @@ export const db = {
     this.broadcast('profile_update', {});
   },
 
-  async spendCoins(userId: string, amount: number): Promise<boolean> {
+  async spendCoins(userId: string, amount: number): Promise<number | null> {
     const profile = await this.getProfile(userId);
-    if (!profile) return false;
-    if ((profile.coins || 0) < amount) return false; // insufficient
+    if (!profile) return null;
+    if ((profile.coins || 0) < amount) return null; // insufficient
     const newCoins = profile.coins - amount;
     const updated = await this.updateProfile(userId, { coins: newCoins });
-    if (updated) this.broadcast('profile_update', { id: userId, coins: newCoins });
-    return !!updated;
+    if (updated) {
+      this.broadcast('profile_update', { id: userId, coins: newCoins });
+      return newCoins;
+    }
+    return null;
   },
 
   async getProfile(userId: string): Promise<Profile | null> {
@@ -1050,10 +1105,10 @@ export const db = {
   async pullCard(
     userId: string,
     packType: 'individual' | 'education' | 'ieee'
-  ): Promise<{ success: boolean; asset: RpgAsset | null; rarity: Rarity; isDuplicate: boolean; errorMsg?: string }> {
+  ): Promise<{ success: boolean; asset: RpgAsset | null; rarity: Rarity; isDuplicate: boolean; newCoins?: number; errorMsg?: string }> {
     const cost = this.packCost(packType);
-    const spent = await this.spendCoins(userId, cost);
-    if (!spent) return { success: false, asset: null, rarity: 'common', isDuplicate: false, errorMsg: 'Koin tidak cukup!' };
+    const newCoins = await this.spendCoins(userId, cost);
+    if (newCoins === null) return { success: false, asset: null, rarity: 'common', isDuplicate: false, errorMsg: 'Koin tidak cukup!' };
 
     const rolledRarity = this.gachaRoll(packType);
     const allAssets = await this.getAssets();
@@ -1070,8 +1125,8 @@ export const db = {
     }
     if (finalPool.length === 0) {
       // refund
-      await this.giveCoins(userId, cost);
-      return { success: false, asset: null, rarity: rolledRarity, isDuplicate: false, errorMsg: 'Tidak ada aset tersedia di pool gacha!' };
+      const refundedCoins = await this.giveCoins(userId, cost);
+      return { success: false, asset: null, rarity: rolledRarity, isDuplicate: false, newCoins: refundedCoins !== null ? refundedCoins : undefined, errorMsg: 'Tidak ada aset tersedia di pool gacha!' };
     }
 
     const picked = finalPool[Math.floor(Math.random() * finalPool.length)];
@@ -1081,7 +1136,7 @@ export const db = {
     const isDuplicate = inventory.some(i => i.asset_id === picked.id);
 
     await this.addToInventory(userId, picked.id);
-    return { success: true, asset: picked, rarity: picked.rarity, isDuplicate };
+    return { success: true, asset: picked, rarity: picked.rarity, isDuplicate, newCoins };
   },
 
   async getTavernComments(dateStr: string): Promise<TavernComment[]> {
@@ -1313,6 +1368,133 @@ export const db = {
       }
     }
     this.broadcast('header_seats_lock_update', { lockedSeats });
+    return true;
+  },
+
+  async getTicTacToeState(): Promise<any | null> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', 'tictactoe_state')
+          .maybeSingle();
+        if (error) throw error;
+        if (data && data.notes) {
+          return data.notes;
+        }
+      } catch (err) {
+        console.warn('Failed to load Tic-Tac-Toe state from Supabase:', err);
+      }
+    }
+    try {
+      const saved = localStorage.getItem('rpg_tictactoe_state');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveTicTacToeState(state: any): Promise<boolean> {
+    localStorage.setItem('rpg_tictactoe_state', JSON.stringify(state));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'tictactoe_state',
+            notes: state,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('Failed to save Tic-Tac-Toe state to Supabase:', err);
+        return false;
+      }
+    }
+    this.broadcast('tictactoe_sync', { tttState: state });
+    return true;
+  },
+
+  async getChessState(): Promise<any | null> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', 'chess_state')
+          .maybeSingle();
+        if (error) throw error;
+        if (data && data.notes) {
+          return data.notes;
+        }
+      } catch (err) {
+        console.warn('Failed to load Chess state from Supabase:', err);
+      }
+    }
+    try {
+      const saved = localStorage.getItem('rpg_chess_state');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveChessState(state: any): Promise<boolean> {
+    localStorage.setItem('rpg_chess_state', JSON.stringify(state));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'chess_state',
+            notes: state,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('Failed to save Chess state to Supabase:', err);
+        return false;
+      }
+    }
+    this.broadcast('chess_sync', { chessState: state });
+    return true;
+  },
+
+  async getGlobalTicker(): Promise<string> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', 'global_ticker')
+          .maybeSingle();
+        if (error) throw error;
+        if (data && typeof data.notes === 'string') {
+          return data.notes;
+        }
+      } catch (err) {
+        console.warn('Failed to load global ticker from Supabase:', err);
+      }
+    }
+    return localStorage.getItem('rpg_global_ticker') || 'Selamat datang di Education Guild! Silakan kustomisasi karakter Anda di House.';
+  },
+
+  async saveGlobalTicker(text: string): Promise<boolean> {
+    localStorage.setItem('rpg_global_ticker', text);
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'global_ticker',
+            notes: text as any,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('Failed to save global ticker to Supabase:', err);
+        return false;
+      }
+    }
+    this.broadcast('ticker_update', { text });
     return true;
   },
 

@@ -33,9 +33,10 @@ interface NoticeBoardProps {
   roomId: string;
   currentProfile: Profile;
   onClose: () => void;
+  profiles?: Profile[];
 }
 
-export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile, onClose }) => {
+export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile, onClose, profiles }) => {
   const [elements, setElements] = useState<BoardElement[]>([]);
   const [strokes, setStrokes] = useState<WhiteboardStroke[]>([]);
   const [comments, setComments] = useState<BoardComment[]>([]);
@@ -1125,7 +1126,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
             </div>
 
             {/* Google Docs-Style Comments Panel */}
-            <div className="border-t border-[#2c2c2c] pt-3 mt-4 flex flex-col max-h-[300px] min-h-[220px] min-w-0">
+            <div className="border-t border-[#2c2c2c] pt-3 mt-4 flex flex-col max-h-[220px] min-h-[120px] min-w-0">
               <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#2c2c2c]">
                 <span className="font-bold text-amber-500 font-mono text-[9px] uppercase tracking-wider flex items-center gap-1">
                   <MessageSquare size={10} /> KOMENTAR ({comments.length})
@@ -1145,9 +1146,18 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                 {comments.map((comment) => (
                   <div key={comment.id} className="bg-[#181818] border border-[#2c2c2c] rounded p-2 relative group">
                     <div className="flex justify-between items-start gap-1 mb-1">
-                      <span className="font-bold text-yellow-100 truncate block max-w-[120px]" title={comment.userName}>
-                        {comment.userName.split(' ')[0]} <span className="text-[7px] text-slate-500 font-normal">({comment.userRole})</span>
-                      </span>
+                      {(() => {
+                        const author = profiles?.find(p => p.name === comment.userName);
+                        return (
+                          <span 
+                            className="font-bold truncate block max-w-[120px]" 
+                            style={{ color: author?.sprite_json.nameColor || '#fef08a' }}
+                            title={comment.userName}
+                          >
+                            {comment.userName.split(' ')[0]} <span className="text-[7px] text-slate-500 font-normal">({comment.userRole})</span>
+                          </span>
+                        );
+                      })()}
                       <button
                         onClick={() => handleDeleteComment(comment.id)}
                         className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-[8px]"

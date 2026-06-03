@@ -34,6 +34,12 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [showScrollOfOrder, setShowScrollOfOrder] = useState(false);
   const [summonText, setSummonText] = useState('Semua staf berkumpul di Round Table sekarang!');
+  const [showTickerInput, setShowTickerInput] = useState(false);
+  const [tempTicker, setTempTicker] = useState(broadcastTicker);
+
+  useEffect(() => {
+    setTempTicker(broadcastTicker);
+  }, [broadcastTicker]);
   
   // Chat Bubble State
   const [chatMessage, setChatMessage] = useState('');
@@ -190,24 +196,68 @@ export const GuildHall: React.FC<GuildHallProps> = ({
     <div className="flex flex-col gap-4 p-2 relative">
       
       {/* Broadcast Ticker Bar */}
-      <div className="bg-slate-950 border border-amber-600/30 p-2 text-xs flex items-center overflow-hidden h-8 rounded relative">
-        <span className="text-amber-500 font-bold border-r border-amber-600/40 pr-2 mr-2 flex-shrink-0 rpg-font-retro text-[10px]">
-          📣 TICKER:
-        </span>
-        {currentProfile.role !== 'Staff' ? (
-          <input
-            type="text"
-            value={broadcastTicker}
-            onChange={(e) => onSetTicker(e.target.value)}
-            placeholder="Edit text berjalan... (Director & Manager Only)"
-            className="flex-1 bg-transparent text-yellow-100 outline-none placeholder-slate-600 border-none font-semibold text-xs py-0"
-          />
-        ) : (
+      <div className="bg-slate-950 border border-amber-600/30 p-2 text-xs flex items-center justify-between overflow-hidden h-8 rounded relative">
+        <div className="flex items-center overflow-hidden flex-1">
+          <span className="text-amber-500 font-bold border-r border-amber-600/40 pr-2 mr-2 flex-shrink-0 rpg-font-retro text-[10px]">
+            TICKER:
+          </span>
           <div className="ticker-wrap flex-1">
-            <div className="ticker-content font-semibold text-yellow-50">{broadcastTicker || "Selamat Datang di Rapat Divisi Education!"}</div>
+            <div className="ticker-content font-semibold text-yellow-50">
+              {broadcastTicker || "Selamat datang di Education Guild! Silakan kustomisasi karakter Anda di House."}
+            </div>
           </div>
+        </div>
+        {currentProfile.role !== 'Staff' && (
+          <button
+            onClick={() => {
+              playClick();
+              if (showTickerInput) {
+                if (tempTicker.trim() && tempTicker.trim() !== broadcastTicker) {
+                  onSetTicker(tempTicker.trim());
+                }
+              }
+              setShowTickerInput(!showTickerInput);
+            }}
+            className="ml-2 px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-stone-950 text-[9px] font-bold rounded cursor-pointer transition-colors flex-shrink-0"
+          >
+            {showTickerInput ? 'SELESAI' : 'EDIT TICKER'}
+          </button>
         )}
       </div>
+
+      {showTickerInput && currentProfile.role !== 'Staff' && (
+        <div className="rpg-panel-wood p-2.5 flex items-center gap-2 border border-amber-500/50 rounded animate-fade-in">
+          <span className="text-[9px] text-[#cca566] font-bold rpg-font-retro mr-1">TICKER BARU:</span>
+          <input
+            type="text"
+            value={tempTicker}
+            onChange={(e) => setTempTicker(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                playClick();
+                if (tempTicker.trim() && tempTicker.trim() !== broadcastTicker) {
+                  onSetTicker(tempTicker.trim());
+                }
+                setShowTickerInput(false);
+              }
+            }}
+            placeholder="Ketik teks berjalan baru... (Tekan Enter atau klik Simpan)"
+            className="flex-1 bg-[#16110e] text-yellow-100 px-3 py-1.5 rounded border border-[#5a3d28] text-xs font-semibold focus:outline-none"
+          />
+          <button
+            onClick={() => {
+              playClick();
+              if (tempTicker.trim() && tempTicker.trim() !== broadcastTicker) {
+                onSetTicker(tempTicker.trim());
+              }
+              setShowTickerInput(false);
+            }}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 text-[10px] font-extrabold rounded cursor-pointer transition-colors"
+          >
+            SIMPAN
+          </button>
+        </div>
+      )}
 
       {/* Main Grid: Map & Side panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -218,39 +268,41 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           {/* Guild Hall Map */}
           <div className="map-scroll-container">
             <div className="rpg-panel border-4 h-[550px] relative overflow-hidden rounded select-none bg-[#2e2620] min-w-[750px] lg:min-w-0" style={{
-              backgroundImage: 'radial-gradient(#1f1a16 1px, transparent 1px)',
-              backgroundSize: '20px 20px'
+              backgroundImage: 'url(/assets/rooms/round_table_bg.jpg)',
+              backgroundSize: '100% 100%',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat'
             }}>
             
-            {/* NOTICE BOARD (Figma Notice Board anchor) */}
+            {/* NOTICE BOARD (Figma Notice Board overlay over background) */}
             <div
               onClick={() => setShowWhiteboard(true)}
-              className="absolute top-4 left-[calc(50%-105px)] w-24 h-16 bg-[#5c4033] border-4 border-[#8b5a2b] rounded shadow-lg cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 z-10 group"
+              style={{ left: '6.8%', top: '1.37%', width: '11.2%', height: '14.38%' }}
+              className="absolute cursor-pointer border-2 border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-10 group"
+              title="Notice Board"
             >
-              <div className="bg-[#fcf8e3] w-[90%] h-[75%] rounded border border-black flex flex-col items-center justify-center relative overflow-hidden">
-                <span className="text-[7.5px] font-bold text-slate-800 font-serif">NOTICE BOARD</span>
-                <span className="text-[6.5px] text-amber-600 font-mono font-bold animate-pulse">KLIK PAPAN</span>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-950/90 text-[8px] text-amber-400 border border-amber-500/50 px-1.5 py-0.5 rounded whitespace-nowrap z-50 pointer-events-none font-bold">
+                NOTICE BOARD (KLIK)
               </div>
             </div>
 
-            {/* SCROLL OF ORDER (Agenda Popup anchor) */}
+            {/* SCROLL OF ORDER (Agenda Popup overlay over background) */}
             <div
               onClick={() => setShowScrollOfOrder(true)}
-              className="absolute top-4 left-[calc(50%+9px)] w-24 h-16 bg-[#b58a55] border-4 border-[#5c3a21] rounded shadow-lg cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 z-10 group"
+              style={{ left: '52.73%', top: '4.28%', width: '11.72%', height: '12.5%' }}
+              className="absolute cursor-pointer border-2 border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-10 group"
+              title="Scroll of Order"
             >
-              <div className="bg-[#fdf6e2] w-[90%] h-[75%] rounded border border-[#5c3a21] flex flex-col items-center justify-center relative overflow-hidden">
-                <span className="text-[7.5px] font-bold text-stone-900 font-serif">SCROLL OF ORDER</span>
-                <span className="text-[6.5px] text-red-600 font-mono font-bold animate-pulse">AGENDA ({checklist.length})</span>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-950/90 text-[8px] text-amber-400 border border-amber-500/50 px-1.5 py-0.5 rounded whitespace-nowrap z-50 pointer-events-none font-bold">
+                SCROLL OF ORDER (AGENDA: {checklist.length})
               </div>
             </div>
 
-            {/* ROUND MEETING TABLE */}
-            <div className="absolute top-[48%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[54%] h-[32%] bg-[#6b4c35] border-[6px] border-[#3e271a] rounded-full shadow-2xl z-20 flex flex-col items-center justify-center">
-              {/* Inner ring decoration */}
-              <div className="w-[85%] h-[80%] border-4 border-dashed border-[#533725]/30 rounded-full flex flex-col items-center justify-center">
-                <span className="rpg-font-retro text-[10px] text-[#cca580] tracking-widest opacity-80">ROUND TABLE</span>
-                <span className="text-[8px] text-[#cca580]/50 mt-1 font-semibold">{profiles.filter(p => p.current_seat_id?.startsWith('guild_hall_')).length} / 22 Duduk</span>
-              </div>
+            {/* ROUND TABLE STATUS PLAQUE */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 bg-slate-950/85 border border-amber-600/30 px-3 py-1 rounded-full flex items-center gap-2 text-[10px] text-yellow-100 font-bold shadow-lg">
+              <span className="text-amber-500 font-serif">ROUND TABLE</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+              <span>{profiles.filter(p => p.current_seat_id?.startsWith('guild_hall_')).length} / 20 Duduk</span>
             </div>
 
             {/* SEATS AND USERS RENDERING */}
@@ -308,8 +360,10 @@ export const GuildHall: React.FC<GuildHallProps> = ({
 
                   {/* Occupant Name Plaque */}
                   {occupant && (
-                    <div className="bg-slate-950/90 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] mt-0.5 font-bold text-yellow-100 max-w-[80px] truncate text-center shadow-md">
-                      {occupant.name.split(' ')[0]}
+                    <div className="bg-slate-950/90 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] mt-0.5 font-bold max-w-[80px] truncate text-center shadow-md">
+                      <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                        {occupant.name.split(' ')[0]}
+                      </span>
                       <span className="block text-[5px] text-[#cca566] truncate mt-0.5 leading-none">{occupant.current_status}</span>
                     </div>
                   )}
@@ -441,6 +495,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           roomId="guild_hall"
           currentProfile={currentProfile}
           onClose={() => setShowWhiteboard(false)}
+          profiles={profiles}
         />
       )}
 

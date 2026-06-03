@@ -642,7 +642,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
       )}
 
       {/* ─ Main 3-column grid ─ */}
-      <div className="flex-1 grid lg:grid-cols-12 overflow-hidden" style={{ minHeight: 0 }}>
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden lg:h-[550px]" style={{ minHeight: 0 }}>
 
         {/* Left: Config / Lobby info / Raider List */}
         <div className="lg:col-span-3 bg-[#0d0202] border-r border-[#3a1010] flex flex-col overflow-y-auto no-scrollbar">
@@ -812,7 +812,12 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline mb-0.5">
-                          <span className="text-sm font-bold text-slate-200 truncate">{occupant.name.split(' ')[0]}</span>
+                          <span 
+                            className="text-sm font-bold truncate"
+                            style={{ color: occupant.sprite_json.nameColor || '#e2e8f0' }}
+                          >
+                            {occupant.name.split(' ')[0]}
+                          </span>
                           <span className="text-xs font-mono text-amber-500">{raider.energy}⚡</span>
                         </div>
                         
@@ -850,7 +855,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
         </div>
 
         {/* Center: Arena */}
-        <div className="lg:col-span-6 bg-[#120505] relative overflow-hidden" style={{ minHeight: '400px' }}>
+        <div className="lg:col-span-6 bg-[#120505] relative overflow-hidden h-[400px] lg:h-full">
           {/* Grid texture */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
             style={{ backgroundImage: 'radial-gradient(circle, #dc2626 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
@@ -865,10 +870,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
             </div>
           )}
 
-          {/* Dashed divider (lobby) */}
-          {phase === 'lobby' && (
-            <div className="absolute left-8 right-8 border-t border-dashed border-red-955/40 pointer-events-none" style={{ top: '47%' }} />
-          )}
+          {/* Dashed divider removed */}
 
           {/* Seats */}
           <div className="absolute inset-0">
@@ -910,7 +912,10 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       </div>
                       {/* Energy + name */}
                       <div className="text-xs font-mono text-amber-500 font-bold leading-none">{raider.energy}⚡</div>
-                      <div className="text-xs font-mono text-slate-350 truncate max-w-[60px] leading-tight text-center font-bold">
+                      <div 
+                        className="text-xs font-mono truncate max-w-[60px] leading-tight text-center font-bold"
+                        style={{ color: occupant.sprite_json.nameColor || '#d1d5db' }}
+                      >
                         {occupant.name.split(' ')[0]}
                       </div>
                     </div>
@@ -921,7 +926,10 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       <SpriteRenderer base={occupant.sprite_json.base} hair={occupant.sprite_json.hair}
                         outfit={occupant.sprite_json.outfit} accessory={occupant.sprite_json.accessory}
                         petId="none" size={32} />
-                      <div className="text-xs font-mono text-slate-300 truncate max-w-[60px] leading-tight text-center">
+                      <div 
+                        className="text-xs font-mono truncate max-w-[60px] leading-tight text-center"
+                        style={{ color: occupant.sprite_json.nameColor || '#d1d5db' }}
+                      >
                         {occupant.name.split(' ')[0]}
                       </div>
                     </div>
@@ -951,7 +959,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
         </div>
 
         {/* Right: Comments */}
-        <div className="lg:col-span-3 bg-[#0d0202] border-l border-[#3a1010] flex flex-col">
+        <div className="lg:col-span-3 bg-[#0d0202] border-l border-[#3a1010] flex flex-col min-h-0 overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-red-955/40 flex justify-between items-center flex-shrink-0">
             <span className="text-xs font-mono text-red-400 font-bold flex items-center gap-1.5">
@@ -976,14 +984,24 @@ export const Wilderness: React.FC<WildernessProps> = ({
           )}
 
           {/* Comment list */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 no-scrollbar max-h-[300px] lg:max-h-[360px]">
             {comments.length === 0 ? (
               <div className="text-center py-12 text-slate-650 italic text-xs">Belum ada komentar...</div>
             ) : (
               comments.map(c => (
                 <div key={c.id} className="bg-[#170606] border border-red-955/40 rounded-lg p-2.5 shadow-sm">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-red-405 truncate max-w-[120px]">{c.authorName.split(' ')[0]}</span>
+                    {(() => {
+                      const author = profiles.find(p => p.id === c.authorId);
+                      return (
+                        <span 
+                          className="text-xs font-bold truncate max-w-[120px]"
+                          style={{ color: author?.sprite_json.nameColor || '#f87171' }}
+                        >
+                          {c.authorName.split(' ')[0]}
+                        </span>
+                      );
+                    })()}
                     <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
                       {new Date(c.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                     </span>

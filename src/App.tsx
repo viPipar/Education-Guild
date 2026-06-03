@@ -74,8 +74,9 @@ function App() {
     // Pre-populate the asset cache so SpriteRenderer can read synchronously
     db.refreshAssetsCache();
 
-    // Fetch initial header seat locks
+    // Fetch initial header seat locks and global ticker
     db.getLockedHeaderSeats().then(setLockedSeats);
+    db.getGlobalTicker().then(setBroadcastTicker);
 
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
@@ -191,8 +192,10 @@ function App() {
   };
 
   const handleSetTicker = (text: string) => {
-    setBroadcastTicker(text);
-    db.broadcast('ticker_update', { text });
+    if (currentProfile && currentProfile.role !== 'Staff') {
+      setBroadcastTicker(text);
+      db.saveGlobalTicker(text);
+    }
   };
 
   // Sort party members: Director first, then Manager, then Staff
@@ -343,67 +346,73 @@ function App() {
           </div>
         )}
 
-        {/* Player Status HUD Panel */}
+        {/* Player Status HUD Panel & Large Global Timer */}
         {currentProfile ? (
-          <div className="rpg-hud-card">
-            {/* Portrait Frame */}
-            <div className="rpg-hud-avatar-frame flex items-center justify-center overflow-hidden">
-              <SpriteRenderer
-                base={currentProfile.sprite_json.base}
-                hair={currentProfile.sprite_json.hair}
-                outfit={currentProfile.sprite_json.outfit}
-                accessory={currentProfile.sprite_json.accessory}
-                petId="none" // Keep HUD avatar clean without pet overlap
-                size={40}
-              />
-            </div>
-            
-            {/* Player details & Stats bar */}
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between items-center gap-4">
-                <span className="font-bold text-xs text-yellow-100">{currentProfile.name.split(' ')[0]}</span>
-                <span className="text-[8px] rpg-font-retro text-[#ffd700]">LV.{currentProfile.level}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[7px] rpg-font-retro text-slate-400">XP:</span>
-                <div className="rpg-hud-bar-container">
-                  <div
-                    className="rpg-hud-bar-fill"
-                    style={{ width: `${getXpProgress(currentProfile.level)}%` }}
-                  />
-                </div>
-              </div>
-              
-              {/* Stats Row (Coins & Timer) */}
-              <div className="flex items-center gap-2 mt-0.5">
-                {/* Coins display */}
-                <div className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded border border-[#cca566]/20">
-                  <span className="text-[10px] font-bold text-amber-400" title="Koin Anda">🪙 {currentProfile.coins ?? 0}</span>
-                </div>
-                
-                {/* Global Timer (always visible, showing 00:00 when idle/paused) */}
-                <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded border font-mono ${
-                  globalTimerRunning && globalTimerDurationRef.current <= 60
-                    ? 'border-red-700 bg-red-950/60 text-red-300 animate-pulse'
-                    : globalTimerRunning && globalTimerDurationRef.current <= 300
-                    ? 'border-yellow-700 bg-yellow-950/40 text-yellow-300'
-                    : 'border-[#cca566]/25 bg-black/40 text-amber-400'
-                }`}>
-                  <span className="text-[9px] font-bold" title="Global Session Timer">⏱️ {globalTimerDisplay}</span>
-                  {!globalTimerRunning && globalTimerDisplay !== '00:00' && (
-                    <span className="text-[6px] text-slate-500 uppercase ml-0.5">paused</span>
-                  )}
-                </div>
-              </div>
+          <div className="flex items-center gap-4 flex-wrap justify-end">
+            {/* Global Timer (placed on the left of profile, large and prominent) */}
+            <div className={`flex flex-col items-center justify-center px-4 py-1 border-2 shadow-lg font-mono rounded-lg min-w-[85px] ${
+              globalTimerRunning && globalTimerDurationRef.current <= 60
+                ? 'border-red-600 bg-red-950/80 text-red-400 animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.4)]'
+                : globalTimerRunning && globalTimerDurationRef.current <= 300
+                ? 'border-yellow-600 bg-yellow-950/70 text-yellow-300 shadow-[0_0_10px_rgba(202,138,4,0.3)]'
+                : 'border-[#cca566]/40 bg-black/60 text-amber-400 shadow-inner'
+            }`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-widest text-slate-400 select-none">TIMER RAPAT</span>
+              <span className="text-xl font-bold font-mono tracking-wider leading-none mt-0.5">{globalTimerDisplay}</span>
+              {!globalTimerRunning && globalTimerDisplay !== '00:00' && (
+                <span className="text-[6px] text-slate-500 font-bold uppercase select-none leading-none mt-1">PAUSED</span>
+              )}
             </div>
 
-            <button
-              onClick={handleLogout}
-              className="text-red-400 hover:text-red-200 p-2 rounded bg-slate-950/80 border border-red-900 transition-colors ml-2 cursor-pointer"
-              title="Leave House"
-            >
-              <LogOut size={14} />
-            </button>
+            {/* Profile HUD Card */}
+            <div className="rpg-hud-card">
+              {/* Portrait Frame */}
+              <div className="rpg-hud-avatar-frame flex items-center justify-center overflow-hidden">
+                <SpriteRenderer
+                  base={currentProfile.sprite_json.base}
+                  hair={currentProfile.sprite_json.hair}
+                  outfit={currentProfile.sprite_json.outfit}
+                  accessory={currentProfile.sprite_json.accessory}
+                  petId="none" // Keep HUD avatar clean without pet overlap
+                  size={40}
+                />
+              </div>
+              
+              {/* Player details & Stats bar */}
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between items-center gap-4">
+                  <span className="font-bold text-xs" style={{ color: currentProfile.sprite_json.nameColor || '#fef08a' }}>
+                    {currentProfile.name.split(' ')[0]}
+                  </span>
+                  <span className="text-[8px] rpg-font-retro text-[#ffd700]">LV.{currentProfile.level}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[7px] rpg-font-retro text-slate-400">XP:</span>
+                  <div className="rpg-hud-bar-container">
+                    <div
+                      className="rpg-hud-bar-fill"
+                      style={{ width: `${getXpProgress(currentProfile.level)}%` }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Stats Row (Coins) */}
+                <div className="flex items-center gap-2 mt-0.5">
+                  {/* Coins display */}
+                  <div className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded border border-[#cca566]/20">
+                    <span className="text-[10px] font-bold text-amber-400" title="Koin Anda">🪙 {currentProfile.coins ?? 0}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={handleLogout}
+                className="text-red-400 hover:text-red-200 p-2 rounded bg-slate-950/80 border border-red-900 transition-colors ml-2 cursor-pointer"
+                title="Leave House"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="rpg-plaque animate-pulse">
@@ -435,6 +444,8 @@ function App() {
                   if (seatId.startsWith('carriage_')) return 'in Carriage';
                   if (seatId.startsWith('boat_')) return 'in Boat';
                   if (seatId.startsWith('tavern_')) return 'in Tavern';
+                  if (seatId.startsWith('wilderness_')) return 'in Wilderness';
+                  if (seatId.startsWith('header_')) return 'In Roof';
                   return 'in House';
                 };
 
@@ -462,7 +473,10 @@ function App() {
                     {/* Member Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center">
-                        <span className={`font-bold text-[11px] truncate block ${isCurrent ? 'text-green-300' : 'text-slate-100'}`}>
+                        <span 
+                          className="font-bold text-[11px] truncate block"
+                          style={{ color: member.sprite_json.nameColor || (isCurrent ? '#86efac' : '#f1f5f9') }}
+                        >
                           {member.name.split(' ')[0]}
                         </span>
                         <span className="text-[7.5px] font-mono text-slate-500">LV.{member.level}</span>
@@ -692,6 +706,8 @@ function App() {
                         if (seat.startsWith('carriage_')) return 'in Carriage';
                         if (seat.startsWith('boat_')) return 'in Boat';
                         if (seat.startsWith('tavern_')) return 'in Tavern';
+                        if (seat.startsWith('wilderness_')) return 'in Wilderness';
+                        if (seat.startsWith('header_')) return 'In Roof';
                         return 'in House';
                       })()}
                     </span>

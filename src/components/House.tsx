@@ -108,7 +108,7 @@ export const House: React.FC<HouseProps> = ({
   }, [currentProfile?.id]);
 
 
-  const statusEmojis = ['🔥', '☕', '💻', '💤', '✨', '🍔', '💡', '📖', '🎨', '🚀'];
+  const statusEmojis = ['💻', '☕', '💡', '📖', '🚀', '🔥'];
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,6 +211,7 @@ export const House: React.FC<HouseProps> = ({
 
     onUpdateProfile({
       sprite_json: {
+        ...currentProfile.sprite_json,
         base: characterOptions[newIndex].id,
         hair: 'none',
         outfit: 'none',
@@ -368,7 +369,7 @@ export const House: React.FC<HouseProps> = ({
               />
               
               <div className="mt-3 bg-slate-950/95 border border-[#cca566]/40 px-3.5 py-1 rounded flex flex-col items-center gap-0.5 shadow-md">
-                <span className="font-bold text-xs text-yellow-50">{currentProfile.name}</span>
+                <span className="font-bold text-xs" style={{ color: currentProfile.sprite_json.nameColor || '#fafaf9' }}>{currentProfile.name}</span>
                 <span className="text-[8px] font-semibold text-yellow-500 font-mono uppercase tracking-wider">{activeCharacterName}</span>
               </div>
             </div>
@@ -384,8 +385,8 @@ export const House: React.FC<HouseProps> = ({
 
           </div>
 
-          {/* LOWER CONTROLS (Pet Stable & Status Emoji side by side) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-xl mt-4">
+          {/* LOWER CONTROLS (Pet Stable, Status Emoji & Name Color side by side) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl mt-4">
             
             {/* Pet Stable */}
             <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
@@ -428,6 +429,35 @@ export const House: React.FC<HouseProps> = ({
                 >
                   ▶
                 </button>
+              </div>
+            </div>
+
+            {/* Name Color Picker */}
+            <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
+              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1.5 block text-center">WARNA NAMA</span>
+              <div className="flex items-center justify-center gap-1.5 flex-wrap h-full content-center">
+                {['#ffffff', '#ffd700', '#f43f5e', '#10b981', '#0ea5e9', '#d946ef', '#f97316', '#06b6d4'].map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => {
+                      playSelect();
+                      onUpdateProfile({
+                        sprite_json: {
+                          ...currentProfile.sprite_json,
+                          nameColor: color
+                        }
+                      });
+                    }}
+                    style={{ backgroundColor: color }}
+                    className={`w-4 h-4 rounded border ${
+                      (currentProfile.sprite_json.nameColor || '#ffffff') === color
+                        ? 'border-amber-500 scale-110 ring-1 ring-amber-500/50'
+                        : 'border-stone-700 hover:border-slate-500'
+                    }`}
+                    title={color}
+                  />
+                ))}
               </div>
             </div>
 

@@ -89,6 +89,18 @@ body {
   100% { background-position-x: 1000px; }
 }
 
+@keyframes ocean-scroll {
+  0% { background-position-x: 0; }
+  100% { background-position-x: 1024px; }
+}
+
+.sea-waves-scroll {
+  background-image: url('/assets/rooms/waves_bg.png');
+  background-size: 1024px 100%;
+  background-repeat: repeat-x;
+  animation: ocean-scroll 25s linear infinite;
+}
+
 @keyframes cloud-move {
   0% { background-position-x: 0; }
   100% { background-position-x: -500px; }
@@ -496,3 +508,32 @@ body {
 .legendary-card:hover {
   box-shadow: 0 0 20px #ffd700, 0 0 35px #ff55ff, var(--shadow-8bit) !important;
 }
+
+/* ==========================================
+   SCROLLING TICKER MARQUEE
+   ========================================== */
+.ticker-wrap {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ticker-content {
+  display: inline-block;
+  animation: ticker-anim 25s linear infinite;
+  padding-right: 50px;
+}
+
+.ticker-wrap:hover .ticker-content {
+  animation-play-state: paused;
+}
+
+@keyframes ticker-anim {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+

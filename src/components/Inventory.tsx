@@ -62,6 +62,7 @@ export const Inventory: React.FC<InventoryProps> = ({ currentProfile, onClose, o
     playSelect();
     onUpdateProfile({
       sprite_json: {
+        ...currentProfile.sprite_json,
         base: asset.id,
         hair: 'none',
         outfit: 'none',

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { Profile, Seat, RpgAsset, Rarity, TavernComment } from '../lib/supabase';
 import { db } from '../lib/supabase';
@@ -24,10 +25,33 @@ interface TicTacToeState {
   winner: string | null;
 }
 
+interface ChessState {
+  board: (string | null)[];
+  turn: 'white' | 'black';
+  playerWhiteId: string | null;
+  playerWhiteName: string | null;
+  playerBlackId: string | null;
+  playerBlackName: string | null;
+  winner: string | null;
+  capturedPieces: string[];
+}
+
+const INITIAL_CHESS_BOARD = [
+  'bR', 'bN', 'bB', 'bQ', 'bK', 'bB', 'bN', 'bR',
+  'bP', 'bP', 'bP', 'bP', 'bP', 'bP', 'bP', 'bP',
+  null, null, null, null, null, null, null, null,
+  null, null, null, null, null, null, null, null,
+  null, null, null, null, null, null, null, null,
+  null, null, null, null, null, null, null, null,
+  'wP', 'wP', 'wP', 'wP', 'wP', 'wP', 'wP', 'wP',
+  'wR', 'wN', 'wB', 'wQ', 'wK', 'wB', 'wN', 'wR'
+];
+
 export const Tavern: React.FC<TavernProps> = ({
   currentProfile,
   profiles,
   onRefreshProfiles,
+  onUpdateProfile,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('tavern', profiles), [profiles]);
   
@@ -123,7 +147,25 @@ export const Tavern: React.FC<TavernProps> = ({
     winner: null
   });
 
+  // Active Game Tab State
+  const [activeGameTab, setActiveGameTab] = useState<'ttt' | 'chess'>('ttt');
+
+  // Chess Game State
+  const [chessState, setChessState] = useState<ChessState>({
+    board: [...INITIAL_CHESS_BOARD],
+    turn: 'white',
+    playerWhiteId: null,
+    playerWhiteName: null,
+    playerBlackId: null,
+    playerBlackName: null,
+    winner: null,
+    capturedPieces: []
+  });
+  const [selectedSquare, setSelectedSquare] = useState<number | null>(null);
+  const [selectedCaptured, setSelectedCaptured] = useState<{ index: number; code: string } | null>(null);
+
   const tttStateRef = useRef(tttState);
+  const chessStateRef = useRef(chessState);
   const spectatorIdsRef = useRef(spectatorIds);
 
   useEffect(() => {
@@ -131,16 +173,30 @@ export const Tavern: React.FC<TavernProps> = ({
   }, [tttState]);
 
   useEffect(() => {
+    chessStateRef.current = chessState;
+  }, [chessState]);
+
+  useEffect(() => {
     spectatorIdsRef.current = spectatorIds;
   }, [spectatorIds]);
 
   // Sync state and listen to broadcasts
   useEffect(() => {
-    // Load local tictactoe state if exists
-    const savedTtt = localStorage.getItem('rpg_tictactoe_state');
-    if (savedTtt) {
-      setTttState(JSON.parse(savedTtt) as TicTacToeState);
-    }
+    // Load from DB
+    db.getTicTacToeState().then(state => {
+      if (state) {
+        setTttState(state);
+      }
+    });
+
+    db.getChessState().then(state => {
+      if (state) {
+        setChessState({
+          ...state,
+          capturedPieces: state.capturedPieces || []
+        });
+      }
+    });
 
     const unsubscribe = db.subscribe((msg) => {
       if (msg.type === 'profile_update' || msg.type === 'seat_claim' || msg.type === 'seat_leave') {
@@ -158,6 +214,21 @@ export const Tavern: React.FC<TavernProps> = ({
         }
         if (payloadData.spectatorIds) {
           setSpectatorIds(payloadData.spectatorIds);
+        }
+      } else if (msg.type === 'chess_sync') {
+        const payloadData = msg.payload;
+        if (payloadData.chessState) {
+          setChessState({
+            ...payloadData.chessState,
+            capturedPieces: payloadData.chessState.capturedPieces || []
+          });
+          localStorage.setItem('rpg_chess_state', JSON.stringify(payloadData.chessState));
+        }
+      } else if (msg.type === 'chess_request_sync') {
+        const currentChess = chessStateRef.current;
+        const isPlayer = currentProfile.id === currentChess.playerWhiteId || currentProfile.id === currentChess.playerBlackId;
+        if (isPlayer) {
+          db.broadcast('chess_sync', { chessState: currentChess });
         }
       } else if (msg.type === 'tictactoe_request_sync') {
         // If we are a player, reply to broadcast sync request
@@ -266,12 +337,17 @@ export const Tavern: React.FC<TavernProps> = ({
     setGachaPulling(false);
 
     if (!result.success) {
+      if (result.newCoins !== undefined) {
+        setLocalCoins(result.newCoins);
+        onUpdateProfile({ coins: result.newCoins });
+      }
       setGachaError(result.errorMsg || 'Pull gagal.');
       return;
     }
-    if (result.asset) {
+    if (result.asset && result.newCoins !== undefined) {
       setPullResult({ asset: result.asset, rarity: result.rarity, isDuplicate: result.isDuplicate });
-      setLocalCoins(prev => prev - db.packCost(selectedPack));
+      setLocalCoins(result.newCoins);
+      onUpdateProfile({ coins: result.newCoins });
       // animate reveal
       setTimeout(() => setCardRevealed(true), 300);
       // refresh profile coins in parent
@@ -294,6 +370,7 @@ export const Tavern: React.FC<TavernProps> = ({
     });
     // Request state sync
     db.broadcast('tictactoe_request_sync', {});
+    db.broadcast('chess_request_sync', {});
   };
 
   const closeGameModal = () => {
@@ -318,7 +395,7 @@ export const Tavern: React.FC<TavernProps> = ({
       newState.playerOName = currentProfile.name.split(' ')[0];
     }
     setTttState(newState);
-    localStorage.setItem('rpg_tictactoe_state', JSON.stringify(newState));
+    db.saveTicTacToeState(newState);
     db.broadcast('tictactoe_sync', { tttState: newState, spectatorIds });
   };
 
@@ -334,7 +411,7 @@ export const Tavern: React.FC<TavernProps> = ({
       winner: null
     };
     setTttState(newState);
-    localStorage.setItem('rpg_tictactoe_state', JSON.stringify(newState));
+    db.saveTicTacToeState(newState);
     db.broadcast('tictactoe_sync', { tttState: newState, spectatorIds: [] });
     setSpectatorIds([]);
   };
@@ -362,13 +439,305 @@ export const Tavern: React.FC<TavernProps> = ({
     };
     
     setTttState(newState);
-    localStorage.setItem('rpg_tictactoe_state', JSON.stringify(newState));
+    db.saveTicTacToeState(newState);
     db.broadcast('tictactoe_sync', { tttState: newState, spectatorIds });
   };
 
-  // Find player profiles to render sprites around Tic-Tac-Toe
+  // Chess handlers
+  const joinChess = (role: 'white' | 'black') => {
+    playClick();
+    const newState = { ...chessState };
+    if (role === 'white') {
+      newState.playerWhiteId = currentProfile.id;
+      newState.playerWhiteName = currentProfile.name.split(' ')[0];
+    } else {
+      newState.playerBlackId = currentProfile.id;
+      newState.playerBlackName = currentProfile.name.split(' ')[0];
+    }
+    setChessState(newState);
+    db.saveChessState(newState);
+    db.broadcast('chess_sync', { chessState: newState });
+  };
+
+  const resetChess = () => {
+    playClick();
+    const newState = {
+      board: [...INITIAL_CHESS_BOARD],
+      turn: 'white' as const,
+      playerWhiteId: null,
+      playerWhiteName: null,
+      playerBlackId: null,
+      playerBlackName: null,
+      winner: null,
+      capturedPieces: []
+    };
+    setChessState(newState);
+    setSelectedSquare(null);
+    setSelectedCaptured(null);
+    db.saveChessState(newState);
+    db.broadcast('chess_sync', { chessState: newState });
+  };
+
+  const playAgainChess = () => {
+    playClick();
+    const newState = {
+      ...chessState,
+      board: [...INITIAL_CHESS_BOARD],
+      turn: 'white' as const,
+      winner: null,
+      capturedPieces: []
+    };
+    setChessState(newState);
+    setSelectedSquare(null);
+    setSelectedCaptured(null);
+    db.saveChessState(newState);
+    db.broadcast('chess_sync', { chessState: newState });
+  };
+
+  const moveChessPiece = (fromIndex: number, toIndex: number) => {
+    // Only White or Black player can move pieces
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) return;
+
+    if (fromIndex === toIndex) return;
+
+    const newBoard = [...chessState.board];
+    const movingPiece = newBoard[fromIndex];
+    if (!movingPiece) return;
+
+    playSelect();
+    const captured = newBoard[toIndex];
+    const newCaptured = [...(chessState.capturedPieces || [])];
+    if (captured) {
+      newCaptured.push(captured);
+    }
+
+    newBoard[toIndex] = movingPiece;
+    newBoard[fromIndex] = null;
+
+    const newState = {
+      ...chessState,
+      board: newBoard,
+      capturedPieces: newCaptured
+    };
+
+    setChessState(newState);
+    setSelectedSquare(null);
+    setSelectedCaptured(null);
+    db.saveChessState(newState);
+    db.broadcast('chess_sync', { chessState: newState });
+  };
+
+  const handleChessSquareClick = (index: number) => {
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) return;
+
+    const piece = chessState.board[index];
+
+    // If a captured piece is selected, click on board moves it to target index
+    if (selectedCaptured !== null) {
+      playSelect();
+      const newBoard = [...chessState.board];
+      const newCaptured = [...(chessState.capturedPieces || [])];
+      
+      const targetPiece = newBoard[index];
+      if (targetPiece) {
+        newCaptured.push(targetPiece);
+      }
+
+      newBoard[index] = selectedCaptured.code;
+      newCaptured.splice(selectedCaptured.index, 1);
+
+      const newState = {
+        ...chessState,
+        board: newBoard,
+        capturedPieces: newCaptured
+      };
+
+      setChessState(newState);
+      setSelectedCaptured(null);
+      db.saveChessState(newState);
+      db.broadcast('chess_sync', { chessState: newState });
+      return;
+    }
+
+    if (selectedSquare === null) {
+      if (piece) {
+        playSelect();
+        setSelectedSquare(index);
+      }
+    } else {
+      if (selectedSquare === index) {
+        playSelect();
+        setSelectedSquare(null);
+      } else {
+        moveChessPiece(selectedSquare, index);
+      }
+    }
+  };
+
+  // Drag & Drop handlers
+  const handleChessDragStart = (e: React.DragEvent, index: number) => {
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', index.toString());
+    setSelectedSquare(index);
+    setSelectedCaptured(null);
+  };
+
+  const handleChessDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleChessDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const sourceIndexStr = e.dataTransfer.getData('text/plain');
+    if (!sourceIndexStr) return;
+
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) return;
+
+    // Check if dragging from captured bench
+    if (sourceIndexStr.startsWith('captured:')) {
+      const parts = sourceIndexStr.split(':');
+      const cIdx = parseInt(parts[1], 10);
+      const pieceCode = parts[2];
+      if (isNaN(cIdx)) return;
+
+      playSelect();
+      const newBoard = [...chessState.board];
+      const newCaptured = [...(chessState.capturedPieces || [])];
+
+      const targetPiece = newBoard[targetIndex];
+      if (targetPiece) {
+        newCaptured.push(targetPiece);
+      }
+
+      newBoard[targetIndex] = pieceCode;
+      newCaptured.splice(cIdx, 1);
+
+      const newState = {
+        ...chessState,
+        board: newBoard,
+        capturedPieces: newCaptured
+      };
+
+      setChessState(newState);
+      setSelectedCaptured(null);
+      setSelectedSquare(null);
+      db.saveChessState(newState);
+      db.broadcast('chess_sync', { chessState: newState });
+      return;
+    }
+
+    const sourceIndex = parseInt(sourceIndexStr, 10);
+    if (isNaN(sourceIndex)) return;
+
+    moveChessPiece(sourceIndex, targetIndex);
+  };
+
+  // Drag from board and drop to captured bench
+  const handleCapturedDropZone = (e: React.DragEvent) => {
+    e.preventDefault();
+    const sourceIndexStr = e.dataTransfer.getData('text/plain');
+    if (!sourceIndexStr || sourceIndexStr.startsWith('captured:')) return;
+    const sourceIndex = parseInt(sourceIndexStr, 10);
+    if (isNaN(sourceIndex)) return;
+
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) return;
+
+    const newBoard = [...chessState.board];
+    const piece = newBoard[sourceIndex];
+    if (!piece) return;
+
+    playSelect();
+    newBoard[sourceIndex] = null;
+    const newCaptured = [...(chessState.capturedPieces || [])];
+    newCaptured.push(piece);
+
+    const newState = {
+      ...chessState,
+      board: newBoard,
+      capturedPieces: newCaptured
+    };
+
+    setChessState(newState);
+    setSelectedSquare(null);
+    setSelectedCaptured(null);
+    db.saveChessState(newState);
+    db.broadcast('chess_sync', { chessState: newState });
+  };
+
+  const handleCapturedZoneClick = () => {
+    if (selectedSquare !== null) {
+      const isWhite = currentProfile.id === chessState.playerWhiteId;
+      const isBlack = currentProfile.id === chessState.playerBlackId;
+      if (!isWhite && !isBlack) return;
+
+      const newBoard = [...chessState.board];
+      const piece = newBoard[selectedSquare];
+      if (!piece) return;
+
+      playSelect();
+      newBoard[selectedSquare] = null;
+      const newCaptured = [...(chessState.capturedPieces || [])];
+      newCaptured.push(piece);
+
+      const newState = {
+        ...chessState,
+        board: newBoard,
+        capturedPieces: newCaptured
+      };
+
+      setChessState(newState);
+      setSelectedSquare(null);
+      setSelectedCaptured(null);
+      db.saveChessState(newState);
+      db.broadcast('chess_sync', { chessState: newState });
+    }
+  };
+
+  const handleCapturedPieceClick = (e: React.MouseEvent, pieceCode: string, cIdx: number) => {
+    e.stopPropagation();
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) return;
+
+    playSelect();
+    if (selectedCaptured?.index === cIdx) {
+      setSelectedCaptured(null);
+    } else {
+      setSelectedCaptured({ index: cIdx, code: pieceCode });
+      setSelectedSquare(null);
+    }
+  };
+
+  const handleCapturedDragStart = (e: React.DragEvent, pieceCode: string, indexInCaptured: number) => {
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if (!isWhite && !isBlack) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', `captured:${indexInCaptured}:${pieceCode}`);
+    setSelectedSquare(null);
+    setSelectedCaptured(null);
+  };
+
+  // Find player profiles to render sprites around Tic-Tac-Toe & Chess
   const playerXProfile = profiles.find(p => p.id === tttState.playerXId);
   const playerOProfile = profiles.find(p => p.id === tttState.playerOId);
+  const playerWhiteProfile = profiles.find(p => p.id === chessState.playerWhiteId);
+  const playerBlackProfile = profiles.find(p => p.id === chessState.playerBlackId);
 
   return (
     <div className="flex flex-col gap-4 p-2">
@@ -407,18 +776,27 @@ export const Tavern: React.FC<TavernProps> = ({
             {/* Cozy rug layout around fireplace */}
             <div className="absolute bottom-[10%] left-[6%] w-[36%] h-[32%] bg-[#422213] rounded-full border-2 border-[#5c3a21]/30 opacity-70 -z-10"></div>
 
-            {/* Interactive Game Table (Tic-Tac-Toe) */}
+            {/* Tic-Tac-Toe Game Table */}
             <div 
-              onClick={openGameModal}
-              className="absolute top-[52%] left-[24%] -translate-x-1/2 -translate-y-1/2 w-20 h-20 bg-[#6d4c41] border-4 border-[#3e2723] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 group"
+              onClick={() => { setActiveGameTab('ttt'); openGameModal(); }}
+              className="absolute top-[54%] left-[10%] -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-[#6d4c41] border-4 border-[#3e2723] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-blue-400 group"
             >
-              <span className="text-[14px]">🎮</span>
-              <span className="text-[6.5px] text-[#ffd700] font-bold text-center leading-none mt-1 rpg-font-retro animate-pulse">TIC-TAC-TOE</span>
+              <span className="text-[12px]">🎮</span>
+              <span className="text-[6px] text-[#ffd700] font-bold text-center leading-none mt-0.5 rpg-font-retro animate-pulse">TIC-TAC-TOE</span>
             </div>
 
-            {/* Render Game Avatars directly next to the table */}
+            {/* Chess Game Table */}
+            <div 
+              onClick={() => { setActiveGameTab('chess'); openGameModal(); }}
+              className="absolute top-[54%] left-[42%] -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-[#5c4033] border-4 border-[#2d1b15] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 group"
+            >
+              <span className="text-[12px]">♟️</span>
+              <span className="text-[6px] text-[#cca566] font-bold text-center leading-none mt-0.5 rpg-font-retro animate-pulse">CHESS GAME</span>
+            </div>
+
+            {/* Render Tic-Tac-Toe Game Avatars directly next to the TTT table */}
             {playerXProfile && (
-              <div className="absolute top-[52%] left-[12%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
+              <div className="absolute top-[54%] left-[3%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
                 <SpriteRenderer
                   base={playerXProfile.sprite_json.base}
                   hair={playerXProfile.sprite_json.hair}
@@ -427,12 +805,17 @@ export const Tavern: React.FC<TavernProps> = ({
                   petId="none"
                   size={44}
                 />
-                <span className="bg-blue-900/90 text-white border border-blue-500 px-1 rounded text-[6px] font-bold mt-0.5 font-mono">X: {playerXProfile.name.split(' ')[0]}</span>
+                <span 
+                  className="bg-blue-900/90 border border-blue-500 px-1 rounded text-[6px] font-bold mt-0.5 font-mono"
+                  style={{ color: playerXProfile.sprite_json.nameColor || '#ffffff' }}
+                >
+                  X: {playerXProfile.name.split(' ')[0]}
+                </span>
               </div>
             )}
             
             {playerOProfile && (
-              <div className="absolute top-[52%] left-[36%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
+              <div className="absolute top-[54%] left-[17%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
                 <SpriteRenderer
                   base={playerOProfile.sprite_json.base}
                   hair={playerOProfile.sprite_json.hair}
@@ -441,24 +824,75 @@ export const Tavern: React.FC<TavernProps> = ({
                   petId="none"
                   size={44}
                 />
-                <span className="bg-red-900/90 text-white border border-red-500 px-1 rounded text-[6px] font-bold mt-0.5 font-mono">O: {playerOProfile.name.split(' ')[0]}</span>
+                <span 
+                  className="bg-red-900/90 border border-red-500 px-1 rounded text-[6px] font-bold mt-0.5 font-mono"
+                  style={{ color: playerOProfile.sprite_json.nameColor || '#ffffff' }}
+                >
+                  O: {playerOProfile.name.split(' ')[0]}
+                </span>
               </div>
             )}
 
-            {/* Render Spectator Avatars around the table */}
+            {/* Render Chess Game Avatars directly next to the Chess table */}
+            {playerWhiteProfile && (
+              <div className="absolute top-[54%] left-[35%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
+                <SpriteRenderer
+                  base={playerWhiteProfile.sprite_json.base}
+                  hair={playerWhiteProfile.sprite_json.hair}
+                  outfit={playerWhiteProfile.sprite_json.outfit}
+                  accessory={playerWhiteProfile.sprite_json.accessory}
+                  petId="none"
+                  size={44}
+                />
+                <span 
+                  className="bg-[#dfbe8c]/90 border border-amber-600 px-1 rounded text-[6.5px] font-bold mt-0.5 font-mono text-[#3e2723] shadow-md"
+                  style={{ color: playerWhiteProfile.sprite_json.nameColor || '#3e2723' }}
+                >
+                  ⚪: {playerWhiteProfile.name.split(' ')[0]}
+                </span>
+              </div>
+            )}
+            
+            {playerBlackProfile && (
+              <div className="absolute top-[54%] left-[49%] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center animate-pulse">
+                <SpriteRenderer
+                  base={playerBlackProfile.sprite_json.base}
+                  hair={playerBlackProfile.sprite_json.hair}
+                  outfit={playerBlackProfile.sprite_json.outfit}
+                  accessory={playerBlackProfile.sprite_json.accessory}
+                  petId="none"
+                  size={44}
+                />
+                <span 
+                  className="bg-[#3e2723]/95 border border-stone-850 px-1 rounded text-[6.5px] font-bold mt-0.5 font-mono text-stone-200 shadow-md"
+                  style={{ color: playerBlackProfile.sprite_json.nameColor || '#eab308' }}
+                >
+                  ⚫: {playerBlackProfile.name.split(' ')[0]}
+                </span>
+              </div>
+            )}
+
+            {/* Render Spectator Avatars around the active table */}
             {spectatorIds
-              .filter(id => id !== tttState.playerXId && id !== tttState.playerOId)
+              .filter(id => {
+                if (activeGameTab === 'chess') {
+                  return id !== chessState.playerWhiteId && id !== chessState.playerBlackId;
+                } else {
+                  return id !== tttState.playerXId && id !== tttState.playerOId;
+                }
+              })
               .map((specId, index) => {
                 const specProfile = profiles.find(p => p.id === specId);
                 if (!specProfile) return null;
                 
+                const tableX = activeGameTab === 'chess' ? 42 : 10;
                 const coords = [
-                  { x: 24, y: 35 },
-                  { x: 24, y: 69 },
-                  { x: 16, y: 63 },
-                  { x: 32, y: 63 },
-                  { x: 16, y: 41 },
-                  { x: 32, y: 41 }
+                  { x: tableX, y: 36 },
+                  { x: tableX, y: 72 },
+                  { x: tableX - 7, y: 66 },
+                  { x: tableX + 7, y: 66 },
+                  { x: tableX - 7, y: 44 },
+                  { x: tableX + 7, y: 44 }
                 ];
                 const pos = coords[index % coords.length];
                 
@@ -476,7 +910,10 @@ export const Tavern: React.FC<TavernProps> = ({
                       petId="none"
                       size={36}
                     />
-                    <span className="bg-slate-900/90 text-yellow-500 border border-slate-700 px-0.5 rounded text-[5px] font-bold mt-0.5 leading-none">
+                    <span 
+                      className="bg-slate-900/90 border border-slate-700 px-0.5 rounded text-[5px] font-bold mt-0.5 leading-none"
+                      style={{ color: specProfile.sprite_json.nameColor || '#eab308' }}
+                    >
                       👁️ {specProfile.name.split(' ')[0]}
                     </span>
                   </div>
@@ -573,8 +1010,10 @@ export const Tavern: React.FC<TavernProps> = ({
                   </div>
                   
                   {occupant && (
-                    <div className="bg-slate-950/90 border border-[#5a3d28]/40 px-1 rounded text-[6.5px] font-semibold text-yellow-50 whitespace-nowrap shadow-md">
-                      {occupant.name.split(' ')[0]}
+                    <div className="bg-slate-950/90 border border-[#5a3d28]/40 px-1 rounded text-[6.5px] font-semibold whitespace-nowrap shadow-md">
+                      <span style={{ color: occupant.sprite_json.nameColor || '#fafaf9' }}>
+                        {occupant.name.split(' ')[0]}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -600,7 +1039,7 @@ export const Tavern: React.FC<TavernProps> = ({
             </form>
             <div className="flex gap-1.5 items-center">
               <span className="text-[9px] text-slate-400 font-bold font-mono">REAKSI:</span>
-              {['✨', '🔥', '🎉', '👍', '💬', '🍺'].map(emote => (
+              {['👍', '🎉', '🔥', '✨', '💡'].map(emote => (
                 <button
                   key={emote}
                   onClick={() => handleEmote(emote)}
@@ -919,98 +1358,345 @@ export const Tavern: React.FC<TavernProps> = ({
 
 
       {/* ====================================================
-          MODAL INTERACTION: TIC-TAC-TOE MULTIPLAYER
+          MODAL INTERACTION: GAME MULTIPLAYER (TTT & CHESS)
           ==================================================== */}
       {showGame && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4">
-          <div className="rpg-panel-stone max-w-sm w-full p-6 border-4 border-[#cca566] text-center">
+          <div className={`rpg-panel-stone ${activeGameTab === 'chess' ? 'max-w-md' : 'max-w-sm'} w-full p-6 border-4 border-[#cca566] text-center transition-all duration-300`}>
             
             <div className="flex justify-between items-center border-b border-stone-750 pb-2 mb-4">
               <h3 className="font-bold text-amber-500 text-xs rpg-font-retro flex items-center gap-1.5">
-                <Gamepad2 size={14} /> COZY TIC-TAC-TOE
+                <Gamepad2 size={14} /> {activeGameTab === 'ttt' ? 'COZY TIC-TAC-TOE' : 'SANDBOX CHESS'}
               </h3>
               <button onClick={closeGameModal} className="text-slate-400 hover:text-white p-1">
                 <X size={16} />
               </button>
             </div>
 
-            {/* Player Roles Panel */}
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="p-2 border border-blue-900 bg-blue-950/30 rounded text-xs">
-                <span className="block text-[8px] text-blue-400 font-bold">PLAYER 1 (X)</span>
-                <span className="font-bold text-yellow-50 text-[10px]">
-                  {tttState.playerXName || 'Kosong'}
-                </span>
-                {!tttState.playerXId && (
-                  <button 
-                    onClick={() => joinGame('X')}
-                    className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
-                  >
-                    Gabung X
-                  </button>
-                )}
-              </div>
-              <div className="p-2 border border-red-900 bg-red-950/30 rounded text-xs">
-                <span className="block text-[8px] text-red-400 font-bold">PLAYER 2 (O)</span>
-                <span className="font-bold text-yellow-50 text-[10px]">
-                  {tttState.playerOName || 'Kosong'}
-                </span>
-                {!tttState.playerOId && (
-                  <button 
-                    onClick={() => joinGame('O')}
-                    className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
-                  >
-                    Gabung O
-                  </button>
-                )}
-              </div>
+            {/* Game Tab Selector */}
+            <div className="flex justify-center gap-2 mb-4 border-b border-stone-850 pb-2">
+              <button
+                onClick={() => { playSelect(); setActiveGameTab('ttt'); }}
+                className={`px-3 py-1 text-[9px] font-bold rpg-font-retro rounded border transition-all ${
+                  activeGameTab === 'ttt'
+                    ? 'border-amber-500 bg-amber-950/40 text-yellow-300'
+                    : 'border-stone-800 bg-stone-900/60 text-stone-500 hover:border-stone-700 hover:text-stone-300'
+                }`}
+              >
+                TIC-TAC-TOE
+              </button>
+              <button
+                onClick={() => { playSelect(); setActiveGameTab('chess'); }}
+                className={`px-3 py-1 text-[9px] font-bold rpg-font-retro rounded border transition-all ${
+                  activeGameTab === 'chess'
+                    ? 'border-amber-500 bg-amber-950/40 text-yellow-300'
+                    : 'border-stone-800 bg-stone-900/60 text-stone-500 hover:border-stone-700 hover:text-stone-300'
+                }`}
+              >
+                SANDBOX CHESS
+              </button>
             </div>
 
-            {/* Tic-Tac-Toe Game Grid Board */}
-            <div className="w-48 h-48 mx-auto grid grid-cols-3 gap-2 bg-[#2d1b15] p-2 border-4 border-[#3e2723] rounded-lg shadow-inner mb-4">
-              {tttState.board.map((cell, idx) => {
-                const isPlayer = currentProfile.id === tttState.playerXId || currentProfile.id === tttState.playerOId;
-                return (
+            {activeGameTab === 'ttt' ? (
+              <>
+                {/* Player Roles Panel */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="p-2 border border-blue-900 bg-blue-950/30 rounded text-xs">
+                    <span className="block text-[8px] text-blue-400 font-bold">PLAYER 1 (X)</span>
+                    <span 
+                      className="font-bold text-[10px]"
+                      style={{ color: playerXProfile?.sprite_json.nameColor || '#fafaf9' }}
+                    >
+                      {tttState.playerXName || 'Kosong'}
+                    </span>
+                    {!tttState.playerXId && (
+                      <button 
+                        onClick={() => joinGame('X')}
+                        className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
+                      >
+                        Gabung X
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-2 border border-red-900 bg-red-950/30 rounded text-xs">
+                    <span className="block text-[8px] text-red-400 font-bold">PLAYER 2 (O)</span>
+                    <span 
+                      className="font-bold text-[10px]"
+                      style={{ color: playerOProfile?.sprite_json.nameColor || '#fafaf9' }}
+                    >
+                      {tttState.playerOName || 'Kosong'}
+                    </span>
+                    {!tttState.playerOId && (
+                      <button 
+                        onClick={() => joinGame('O')}
+                        className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
+                      >
+                        Gabung O
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tic-Tac-Toe Game Grid Board */}
+                <div 
+                  className="w-48 h-48 mx-auto grid grid-cols-3 grid-rows-3 gap-2 bg-[#2d1b15] p-2 border-4 border-[#3e2723] rounded-lg shadow-inner mb-4"
+                  style={{ gridTemplateRows: 'repeat(3, minmax(0, 1fr))' }}
+                >
+                  {tttState.board.map((cell, idx) => {
+                    const isPlayer = currentProfile.id === tttState.playerXId || currentProfile.id === tttState.playerOId;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => makeMove(idx)}
+                        disabled={!isPlayer}
+                        className={`w-full h-full rounded border border-[#5a3d28]/35 flex items-center justify-center text-xl font-bold font-mono transition-colors focus:outline-none ${
+                          cell === 'X' 
+                            ? 'text-blue-400 bg-blue-950/20' 
+                            : cell === 'O' 
+                              ? 'text-red-400 bg-red-950/20' 
+                              : !isPlayer 
+                                ? 'bg-[#1b100c]/40 cursor-not-allowed'
+                                : 'bg-[#1b100c] hover:bg-[#3d271f]'
+                        }`}
+                      >
+                        {cell}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Winner / Status message */}
+                <div className="mb-4 text-xs font-semibold text-yellow-100">
+                  {tttState.winner ? (
+                    tttState.winner === 'Draw' ? (
+                      <span className="text-yellow-500 font-bold text-sm block animate-bounce">⚡ SERI / DRAW! ⚡</span>
+                    ) : (
+                      <span className="text-green-400 font-bold text-sm block animate-bounce">🎉 PEMENANG: PLAYER {tttState.winner}! 🎉</span>
+                    )
+                  ) : (
+                    <span>GILIRAN JALAN: <strong className="text-yellow-400">{tttState.turn}</strong></span>
+                  )}
+                </div>
+
+                {/* Reset / Clean Board */}
+                {tttState.winner && (
                   <button
-                    key={idx}
-                    onClick={() => makeMove(idx)}
-                    disabled={!isPlayer}
-                    className={`w-full h-full rounded border border-[#5a3d28]/35 flex items-center justify-center text-xl font-bold font-mono transition-colors focus:outline-none ${
-                      cell === 'X' 
-                        ? 'text-blue-400 bg-blue-950/20' 
-                        : cell === 'O' 
-                          ? 'text-red-400 bg-red-950/20' 
-                          : !isPlayer 
-                            ? 'bg-[#1b100c]/40 cursor-not-allowed'
-                            : 'bg-[#1b100c] hover:bg-[#3d271f]'
-                    }`}
+                    onClick={() => {
+                      playClick();
+                      const newState = {
+                        ...tttState,
+                        board: Array(9).fill(null),
+                        turn: 'X' as const,
+                        winner: null
+                      };
+                      setTttState(newState);
+                      db.saveTicTacToeState(newState);
+                      db.broadcast('tictactoe_sync', { tttState: newState, spectatorIds });
+                    }}
+                    className="rpg-btn-game w-full border border-[#cca566] text-amber-500 py-1.5 text-[9px] font-bold mb-2 cursor-pointer shadow-md"
                   >
-                    {cell}
+                    🎮 MAIN LAGI (RESET PAPAN)
                   </button>
-                );
-              })}
-            </div>
+                )}
 
-            {/* Winner / Status message */}
-            <div className="mb-4 text-xs font-semibold text-yellow-100">
-              {tttState.winner ? (
-                tttState.winner === 'Draw' ? (
-                  <span className="text-yellow-500 font-bold text-sm block animate-bounce">⚡ SERI / DRAW! ⚡</span>
-                ) : (
-                  <span className="text-green-400 font-bold text-sm block animate-bounce">🎉 PEMENANG: PLAYER {tttState.winner}! 🎉</span>
-                )
-              ) : (
-                <span>GILIRAN JALAN: <strong className="text-yellow-400">{tttState.turn}</strong></span>
-              )}
-            </div>
+                <button
+                  onClick={() => { resetGame(); closeGameModal(); }}
+                  className="rpg-btn-game w-full bg-slate-900 border border-slate-700 hover:border-amber-500 py-1.5 text-[9px] font-bold cursor-pointer"
+                >
+                  BERSIHKAN PAPAN & KELUAR GAME
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Chess Player Roles Panel */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="p-2 border border-amber-900 bg-amber-950/20 rounded text-xs">
+                    <span className="block text-[8px] text-amber-300 font-bold">PUTIH (WHITE ⚪)</span>
+                    <span 
+                      className="font-bold text-[10px]"
+                      style={{ color: playerWhiteProfile?.sprite_json.nameColor || '#fafaf9' }}
+                    >
+                      {chessState.playerWhiteName || 'Kosong'}
+                    </span>
+                    {!chessState.playerWhiteId && (
+                      <button 
+                        onClick={() => joinChess('white')}
+                        className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
+                      >
+                        Gabung Putih
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-2 border border-stone-850 bg-stone-900/60 rounded text-xs">
+                    <span className="block text-[8px] text-stone-400 font-bold">HITAM (BLACK ⚫)</span>
+                    <span 
+                      className="font-bold text-[10px]"
+                      style={{ color: playerBlackProfile?.sprite_json.nameColor || '#eab308' }}
+                    >
+                      {chessState.playerBlackName || 'Kosong'}
+                    </span>
+                    {!chessState.playerBlackId && (
+                      <button 
+                        onClick={() => joinChess('black')}
+                        className="rpg-btn-game text-[8px] px-2 py-0.5 mt-1.5 w-full block"
+                      >
+                        Gabung Hitam
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-            {/* Reset / Clean Board */}
-            <button
-              onClick={() => { resetGame(); closeGameModal(); }}
-              className="rpg-button w-full bg-slate-900 border border-slate-700 hover:border-amber-500 py-1.5 text-[9px] font-bold"
-            >
-              BERSIHKAN PAPAN & KELUAR GAME
-            </button>
+                {/* Board + Bench Wrapper */}
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
+                  
+                  {/* Chess Game Grid Board (8x8) */}
+                  <div 
+                    className="w-64 h-64 grid grid-cols-8 grid-rows-8 gap-0 bg-[#2d1b15] border-4 border-[#3e2723] rounded-lg shadow-inner overflow-hidden flex-shrink-0"
+                    style={{ gridTemplateRows: 'repeat(8, minmax(0, 1fr))' }}
+                  >
+                    {chessState.board.map((cell, idx) => {
+                      const row = Math.floor(idx / 8);
+                      const col = idx % 8;
+                      const isLight = (row + col) % 2 === 0;
+                      const isSelected = selectedSquare === idx;
+                      const piece = cell;
+                      const pieceColor = piece ? piece[0] : null;
+                      const pieceType = piece ? piece[1] : null;
+
+                      const isPlayerWhite = currentProfile.id === chessState.playerWhiteId;
+                      const isPlayerBlack = currentProfile.id === chessState.playerBlackId;
+                      const isPlayer = isPlayerWhite || isPlayerBlack;
+
+                      // Solid chess glyphs mapping
+                      const SOLID_CHESS_GLYPHS: Record<string, string> = {
+                        K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟'
+                      };
+                      const glyph = pieceType ? (SOLID_CHESS_GLYPHS[pieceType] || '') : '';
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => handleChessSquareClick(idx)}
+                          onDragOver={handleChessDragOver}
+                          onDrop={(e) => handleChessDrop(e, idx)}
+                          disabled={!isPlayer}
+                          className={`w-full h-full flex items-center justify-center text-xl font-bold transition-all relative focus:outline-none ${
+                            isLight ? 'bg-[#dfbe8c]' : 'bg-[#8b5a2b]'
+                          } ${
+                            isSelected 
+                              ? 'ring-2 ring-yellow-400 ring-inset bg-yellow-500/20' 
+                              : ''
+                          } ${
+                            !isPlayer
+                              ? 'cursor-default'
+                              : 'hover:brightness-110 cursor-pointer'
+                          }`}
+                        >
+                          {piece && (
+                            <span 
+                              draggable={isPlayer}
+                              onDragStart={(e) => handleChessDragStart(e, idx)}
+                              className={`select-none transition-transform duration-200 ${
+                                isPlayer ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                              } ${
+                                pieceColor === 'w'
+                                  ? 'text-stone-50 drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.95)]'
+                                  : 'text-[#18110f] drop-shadow-[0_1.2px_1.2px_rgba(255,255,255,0.4)]'
+                              } ${isSelected ? 'scale-110' : ''}`}
+                            >
+                              {glyph}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Captured pieces bench */}
+                  <div 
+                    onDragOver={handleChessDragOver}
+                    onDrop={handleCapturedDropZone}
+                    onClick={handleCapturedZoneClick}
+                    className="w-32 h-64 bg-[#1b100c] border-4 border-[#3e2723] rounded-lg p-2 flex flex-col justify-between cursor-pointer hover:border-amber-600 transition-colors flex-shrink-0"
+                    title="Bidak cadangan. Tarik bidak ke sini untuk menyimpannya."
+                  >
+                    <span className="text-[7.5px] text-amber-500 font-bold block uppercase tracking-wider text-center border-b border-[#3e2723]/60 pb-1 mb-1.5 font-mono">
+                      BENCH CADANGAN
+                    </span>
+                    <div className="flex-1 overflow-y-auto grid grid-cols-4 gap-1 content-start max-h-[200px] no-scrollbar">
+                      {(chessState.capturedPieces || []).map((piece: string, cIdx: number) => {
+                        const pieceColor = piece[0];
+                        const pieceType = piece[1];
+                        const SOLID_CHESS_GLYPHS: Record<string, string> = {
+                          K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟'
+                        };
+                        const glyph = SOLID_CHESS_GLYPHS[pieceType] || '';
+                        const isSelected = selectedCaptured?.index === cIdx;
+                        const isPlayerWhite = currentProfile.id === chessState.playerWhiteId;
+                        const isPlayerBlack = currentProfile.id === chessState.playerBlackId;
+                        const isPlayer = isPlayerWhite || isPlayerBlack;
+
+                        return (
+                          <div
+                            key={cIdx}
+                            onClick={(e) => handleCapturedPieceClick(e, piece, cIdx)}
+                            draggable={isPlayer}
+                            onDragStart={(e) => handleCapturedDragStart(e, piece, cIdx)}
+                            className={`w-6 h-6 rounded border flex items-center justify-center text-sm font-bold transition-all ${
+                              isSelected
+                                ? 'bg-yellow-500/20 border-yellow-400 ring-2 ring-yellow-400 ring-inset'
+                                : 'bg-[#2d1b15] border-[#5a3d28]/35 hover:bg-[#3d271f] hover:border-amber-500'
+                            } ${
+                              isPlayer ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                            }`}
+                          >
+                            <span className={`select-none transition-transform ${
+                              pieceColor === 'w'
+                                ? 'text-stone-50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]'
+                                : 'text-[#18110f] drop-shadow-[0_0.8px_0.8px_rgba(255,255,255,0.4)]'
+                            } ${isSelected ? 'scale-110' : ''}`}>
+                              {glyph}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[6px] text-stone-500 text-center italic mt-1 leading-none uppercase font-mono">
+                      TARIK / KLIK DI SINI UNTUK SIMPAN
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Winner / Status message */}
+                <div className="mb-4 text-xs font-semibold text-yellow-100">
+                  {chessState.winner ? (
+                    <span className="text-green-400 font-bold text-sm block animate-bounce">
+                      🎉 PEMENANG: PLAYER {chessState.winner === 'white' ? 'PUTIH (WHITE)' : 'HITAM (BLACK)'}! 🎉
+                    </span>
+                  ) : (
+                    <span>MODE BEBAS (SANDBOX) — Tarik & taruh bidak atau klik untuk jalan!</span>
+                  )}
+                </div>
+
+                {/* Reset / Clean Board */}
+                {chessState.winner && (
+                  <button
+                    onClick={playAgainChess}
+                    className="rpg-btn-game w-full border border-[#cca566] text-amber-500 py-1.5 text-[9px] font-bold mb-2 cursor-pointer shadow-md"
+                  >
+                    🎮 MAIN LAGI (RESET PAPAN)
+                  </button>
+                )}
+
+                <button
+                  onClick={() => { resetChess(); closeGameModal(); }}
+                  className="rpg-btn-game w-full bg-slate-900 border border-slate-700 hover:border-amber-500 py-1.5 text-[9px] font-bold cursor-pointer"
+                >
+                  BERSIHKAN PAPAN & KELUAR GAME
+                </button>
+              </>
+            )}
             
           </div>
         </div>
