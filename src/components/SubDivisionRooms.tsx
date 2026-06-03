@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Profile, Seat, ChecklistItem } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { ClipboardList, Plus, Check } from 'lucide-react';
+import { ClipboardList, Plus, Check, Trash2 } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
 
@@ -19,7 +19,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   onRefreshProfiles,
   activeRoom
 }) => {
-  const [seats, setSeats] = useState<Seat[]>([]);
+  const seats = React.useMemo(() => db.getSeatsSync(activeRoom, profiles), [profiles, activeRoom]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [showWhiteboard, setShowWhiteboard] = useState(false);
@@ -29,8 +29,6 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   const [activeBubbles, setActiveBubbles] = useState<{ [userId: string]: { text: string, timerId: any } }>({});
 
   const loadRoomData = async () => {
-    const s = await db.getSeats(activeRoom);
-    setSeats(s);
     const c = await db.getChecklist(activeRoom);
     setChecklist(c);
   };
@@ -50,11 +48,6 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
 
     return () => unsubscribe();
   }, [activeRoom]);
-
-  // Sync seats when profiles change
-  useEffect(() => {
-    db.getSeats(activeRoom).then(setSeats);
-  }, [profiles, activeRoom]);
 
   const handleSeatClick = async (seat: Seat) => {
     playSelect();
@@ -78,6 +71,12 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   const handleToggleChecklist = async (item: ChecklistItem) => {
     playClick();
     await db.toggleChecklistItem(activeRoom, item.id, !item.completed, currentProfile.name);
+    db.getChecklist(activeRoom).then(setChecklist);
+  };
+
+  const handleDeleteChecklist = async (itemId: number) => {
+    playClick();
+    await db.deleteChecklistItem(activeRoom, itemId);
     db.getChecklist(activeRoom).then(setChecklist);
   };
 
@@ -353,24 +352,35 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 {checklist.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => handleToggleChecklist(item)}
-                    className={`flex items-start gap-3 p-2 rounded cursor-pointer border-2 transition-all ${
+                    className={`flex items-center justify-between gap-3 p-2 rounded border-2 transition-all ${
                       item.completed
                         ? 'bg-stone-900/10 border-stone-400 line-through text-stone-500'
                         : 'bg-stone-950/5 border-[#5c3a21] hover:border-yellow-700 text-stone-900 font-semibold'
                     }`}
                   >
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                      item.completed ? 'border-green-700 bg-green-900/10 text-green-700' : 'border-[#5c3a21] bg-white/60'
-                    }`}>
-                      {item.completed && <Check size={12} strokeWidth={3} />}
+                    <div className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer" onClick={() => handleToggleChecklist(item)}>
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        item.completed ? 'border-green-700 bg-green-900/10 text-green-700' : 'border-[#5c3a21] bg-white/60'
+                      }`}>
+                        {item.completed && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      <div className="flex-1 text-xs select-none leading-relaxed truncate">
+                        {item.title}
+                        {item.completed && item.completed_by && (
+                          <span className="block text-[8px] text-green-700 font-mono mt-0.5">Dicentang: {item.completed_by}</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1 text-xs select-none leading-relaxed">
-                      {item.title}
-                      {item.completed && item.completed_by && (
-                        <span className="block text-[8px] text-green-700 font-mono mt-0.5">Dicentang: {item.completed_by}</span>
-                      )}
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteChecklist(item.id);
+                      }}
+                      className="p-1 text-red-650 hover:text-red-800 hover:bg-red-950/10 rounded flex-shrink-0"
+                      title="Hapus Agenda"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
                 {checklist.length === 0 && (
@@ -407,6 +417,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
       {showWhiteboard && (
         <NoticeBoard
           roomId={activeRoom}
+          currentProfile={currentProfile}
           onClose={() => setShowWhiteboard(false)}
         />
       )}

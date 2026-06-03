@@ -352,8 +352,8 @@ export const CardGacha: React.FC<CardGachaProps> = ({ currentProfile }) => {
 
       {activeTab === 'binder' && (
         <div>
-          <div className="rpg-plaque mb-4 flex items-center gap-1.5 text-[10px]">
-            📜 COLLECTOR'S BINDER
+          <div className="rpg-plaque mb-4 flex items-center justify-center gap-1.5 text-[10px]">
+            <Library size={12} /> COLLECTOR'S BINDER
           </div>
           <p className="text-[10px] text-slate-400 mb-6 font-semibold">
             Tinjau koleksi kartu memori unik yang telah Anda tarik dari booster pack. Setiap kartu merekam momen berharga divisi!

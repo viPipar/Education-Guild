@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Profile, Seat, ChecklistItem } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X } from 'lucide-react';
+import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
 
@@ -21,7 +21,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   broadcastTicker,
   onSetTicker
 }) => {
-  const [seats, setSeats] = useState<Seat[]>([]);
+  const seats = React.useMemo(() => db.getSeatsSync('guild_hall', profiles), [profiles]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   
@@ -44,8 +44,6 @@ export const GuildHall: React.FC<GuildHallProps> = ({
 
   // Fetch seats and checklist
   const loadRoomData = async () => {
-    const s = await db.getSeats('guild_hall');
-    setSeats(s);
     const c = await db.getChecklist('guild_hall');
     setChecklist(c);
   };
@@ -72,11 +70,6 @@ export const GuildHall: React.FC<GuildHallProps> = ({
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
-
-  // Update seats when profiles update
-  useEffect(() => {
-    db.getSeats('guild_hall').then(setSeats);
-  }, [profiles]);
 
   // Global Timer Tick
   useEffect(() => {
@@ -154,6 +147,12 @@ export const GuildHall: React.FC<GuildHallProps> = ({
     playClick();
     const isCompleted = !item.completed;
     await db.toggleChecklistItem('guild_hall', item.id, isCompleted, currentProfile.name);
+    db.getChecklist('guild_hall').then(setChecklist);
+  };
+
+  const handleDeleteChecklist = async (itemId: number) => {
+    playClick();
+    await db.deleteChecklistItem('guild_hall', itemId);
     db.getChecklist('guild_hall').then(setChecklist);
   };
 
@@ -346,7 +345,9 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           
           {/* Global Timer Card */}
           <div className="rpg-panel-wood text-center">
-            <div className="rpg-plaque mb-3">⌛ TIMER RAPAT</div>
+            <div className="rpg-plaque mb-3 flex items-center justify-center gap-1.5">
+              <Clock size={12} /> TIMER RAPAT
+            </div>
             
             <div className={`text-4xl font-mono font-bold py-2 ${getTimerColorClass()}`}>
               {timerDisplay}
@@ -392,12 +393,12 @@ export const GuildHall: React.FC<GuildHallProps> = ({
 
                 {/* Summon Controls with announcement field */}
                 <div className="mt-3 border-t border-stone-800 pt-3 flex flex-col gap-2">
-                  <label className="block text-[8.5px] text-[#cca566] font-bold text-left">PENGUMUMAN SUMMON:</label>
+                  <label className="block text-[8.5px] text-[#cca566] font-bold text-left">PESAN BROADCAST:</label>
                   <input
                     type="text"
                     value={summonText}
                     onChange={(e) => setSummonText(e.target.value)}
-                    placeholder="Tulis pesan summon..."
+                    placeholder="Tulis pesan broadcast..."
                     className="w-full bg-[#16110e] text-yellow-100 p-2 rounded border border-[#5a3d28] text-[10px] focus:outline-none font-bold"
                   />
                   <button onClick={handleBroadcastSummon} className="rpg-btn-game w-full text-[9px] text-[#cca566] py-1.5" style={{
@@ -406,7 +407,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
                     border: '2px solid #5a3d28',
                     color: '#ffd700'
                   }}>
-                    📢 SUMMON SEMUA STAF
+                    SIARKAN BROADCAST
                   </button>
                 </div>
               </div>
@@ -416,8 +417,8 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           {/* Room Info / Guild ledger snippet card instead of Scroll of Order */}
           <div className="rpg-panel-wood p-4 flex flex-col justify-between min-h-[220px]">
             <div>
-              <h3 className="font-bold text-[#cca566] text-xs mb-3 font-mono">
-                🏰 ROOM INFO: GUILD HALL
+              <h3 className="font-bold text-[#cca566] text-xs mb-3 font-mono flex items-center gap-1.5">
+                <Info size={12} /> ROOM INFO: GUILD HALL
               </h3>
               <p className="text-[10px] text-slate-400 leading-normal mb-3 font-semibold">
                 Gunakan <strong>Notice Board</strong> untuk curah ide bersama secara figma-like, dan <strong>Scroll of Order</strong> di tengah peta untuk memantau agenda rapat hari ini.
@@ -438,6 +439,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
       {showWhiteboard && (
         <NoticeBoard
           roomId="guild_hall"
+          currentProfile={currentProfile}
           onClose={() => setShowWhiteboard(false)}
         />
       )}
@@ -461,24 +463,35 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               {checklist.map((item) => (
                 <div
                   key={item.id}
-                  onClick={() => handleToggleChecklist(item)}
-                  className={`flex items-start gap-3 p-2 rounded cursor-pointer border-2 transition-all ${
+                  className={`flex items-center justify-between gap-3 p-2 rounded border-2 transition-all ${
                     item.completed
                       ? 'bg-stone-950/10 border-stone-400 line-through text-stone-500 font-normal'
                       : 'bg-white border-[#5c3a21] hover:border-yellow-700 text-stone-900 font-semibold'
                   }`}
                 >
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                    item.completed ? 'border-green-700 bg-green-900/10 text-green-700' : 'border-[#5c3a21] bg-white/60'
-                  }`}>
-                    {item.completed && <Check size={12} strokeWidth={3} />}
+                  <div className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer" onClick={() => handleToggleChecklist(item)}>
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                      item.completed ? 'border-green-700 bg-green-900/10 text-green-700' : 'border-[#5c3a21] bg-white/60'
+                    }`}>
+                      {item.completed && <Check size={12} strokeWidth={3} />}
+                    </div>
+                    <div className="flex-1 text-xs select-none leading-relaxed truncate">
+                      {item.title}
+                      {item.completed && item.completed_by && (
+                        <span className="block text-[8px] text-green-700 font-mono mt-0.5">Dicentang oleh: {item.completed_by}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1 text-xs select-none leading-relaxed">
-                    {item.title}
-                    {item.completed && item.completed_by && (
-                      <span className="block text-[8px] text-green-700 font-mono mt-0.5">Dicentang oleh: {item.completed_by}</span>
-                    )}
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteChecklist(item.id);
+                    }}
+                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-100/50 rounded flex-shrink-0"
+                    title="Hapus Agenda"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               ))}
               {checklist.length === 0 && (

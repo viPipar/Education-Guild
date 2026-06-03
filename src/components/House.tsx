@@ -1,42 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import type { Profile } from '../lib/supabase';
+import type { Profile, RpgAsset } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Shield, Sparkles, Smile, Award, LogIn } from 'lucide-react';
+import { Shield, Sparkles, Smile, Award, LogIn, Package } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
+
 
 interface HouseProps {
   profiles: Profile[];
   currentProfile: Profile | null;
   onLogin: (profile: Profile) => void;
   onUpdateProfile: (updates: Partial<Profile>) => void;
+  onOpenInventory?: () => void;
 }
+
 
 export const House: React.FC<HouseProps> = ({
   currentProfile,
   onLogin,
-  onUpdateProfile
+  onUpdateProfile,
+  onOpenInventory
 }) => {
+
   // Login Form States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // Unlocked cosmetics state
-  const [unlockedCosmetics, setUnlockedCosmetics] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (currentProfile) {
-      const savedUnlocked = localStorage.getItem(`rpg_unlocked_cosmetics_${currentProfile.id}`);
-      if (savedUnlocked) {
-        setUnlockedCosmetics(JSON.parse(savedUnlocked));
-      } else {
-        const defaults = ['hair_black', 'hair_brown', 'outfit_casual', 'none'];
-        setUnlockedCosmetics(defaults);
-      }
-    }
-  }, [currentProfile?.id]);
 
   // Change Password States
   const [newPassword, setNewPassword] = useState('');
@@ -58,45 +50,63 @@ export const House: React.FC<HouseProps> = ({
   const [customStatusText, setCustomStatusText] = useState('');
   const [customStatusEmoji, setCustomStatusEmoji] = useState('🔥');
 
-  // Customize Options
-  const baseOptions = [
-    { id: 'base_1', name: 'Putih Gading' },
-    { id: 'base_2', name: 'Kuning Langsat' },
-    { id: 'base_3', name: 'Sawo Matang' }
-  ];
+  // ── Dynamic Asset State ──────────────────────────────────────────────────
+  const [characterOptions, setCharacterOptions] = useState<RpgAsset[]>([]);
+  const [petOptions, setPetOptions] = useState<RpgAsset[]>([]);
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
 
-  const hairOptions = [
-    { id: 'hair_black', name: 'Spike Hitam' },
-    { id: 'hair_brown', name: 'Bob Cokelat' },
-    { id: 'hair_yellow', name: 'Spike Emas' },
-    { id: 'hair_red', name: 'Spike Merah' },
-    { id: 'hair_grey', name: 'Bob Kelabu' }
-  ];
+  const loadAssets = async () => {
+    if (!currentProfile) return;
+    try {
+      const [all, inv] = await Promise.all([
+        db.getAssets(),
+        db.getInventory(currentProfile.id)
+      ]);
+      await db.refreshAssetsCache(); // keep SpriteRenderer cache fresh
 
-  const outfitOptions = [
-    { id: 'outfit_casual', name: 'Casual Orange' },
-    { id: 'outfit_gold', name: 'Director Royal' },
-    { id: 'outfit_blue', name: 'Academic Robe' },
-    { id: 'outfit_green', name: 'Pub Cloak' },
-    { id: 'outfit_red', name: 'Project Suit' },
-    { id: 'outfit_purple', name: 'Comp Wizard' }
-  ];
+      // Owned custom character assets
+      const ownedCharAssets = all.filter(a => a.type === 'character' && (a.rarity === 'basic' || inv.some(i => i.asset_id === a.id)));
 
-  const accessoryOptions = [
-    { id: 'none', name: 'Tidak Ada Aksesori' },
-    { id: 'glasses', name: 'Kacamata Baca' },
-    { id: 'crown', name: 'Mahkota Emas' },
-    { id: 'headset', name: 'Gamer Headset' }
-  ];
+      // Only owned custom character assets (no default vector bases)
+      const currentBase = currentProfile.sprite_json.base;
+      const isDefaultBase = ['base_1', 'base_2', 'base_3'].includes(currentBase);
+      const charList = [...ownedCharAssets];
+      if (isDefaultBase && !charList.some(a => a.id === currentBase)) {
+        charList.unshift({
+          id: currentBase,
+          name: currentBase === 'base_1' ? 'Karakter 1 (Default)' : currentBase === 'base_2' ? 'Karakter 2 (Default)' : 'Karakter 3 (Default)',
+          type: 'character',
+          rarity: 'common',
+          min_level: 1,
+          description: 'Aset bawaan awal',
+          image_url: ''
+        });
+      }
+      setCharacterOptions(charList);
 
-  const petOptions = [
-    { id: 'none', name: 'Tidak Ada Pet', minLevel: 1 },
-    { id: 'cat', name: 'Kucing Orange', minLevel: 1 },
-    { id: 'dog', name: 'Anjing Shiba', minLevel: 1 },
-    { id: 'slime', name: 'Slime Hijau', minLevel: 2 },
-    { id: 'owl', name: 'Burung Hantu', minLevel: 4 },
-    { id: 'dragon', name: 'Naga Ungu (VIP)', minLevel: 8 }
-  ];
+      // Owned custom pet assets
+      const ownedPetAssets = all.filter(a => a.type === 'pet' && (a.rarity === 'basic' || inv.some(i => i.asset_id === a.id)));
+
+      // Default no-pet option + owned custom pets
+      setPetOptions([
+        { id: 'none', name: 'Tidak Ada Pet', type: 'pet', rarity: 'common', min_level: 1, description: '', image_url: '' },
+        ...ownedPetAssets
+      ]);
+    } catch (err) {
+      console.error('Failed to load assets in House:', err);
+    } finally {
+      setAssetsLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    loadAssets();
+    const unsub = db.subscribe((msg) => {
+      if (msg.type === 'assets_update' || msg.type === 'profile_update') loadAssets();
+    });
+    return () => unsub();
+  }, [currentProfile?.id]);
+
 
   const statusEmojis = ['🔥', '☕', '💻', '💤', '✨', '🍔', '💡', '📖', '🎨', '🚀'];
 
@@ -183,46 +193,48 @@ export const House: React.FC<HouseProps> = ({
     setCustomStatusText('');
   };
 
-  // Carousel Next/Prev Logic
-  const handleCarouselChange = (
-    layer: 'base' | 'hair' | 'outfit' | 'accessory',
-    options: { id: string; name: string }[],
-    direction: 'next' | 'prev'
-  ) => {
-    if (!currentProfile) return;
+  // Carousel logic — character (no level gating: all chars available to everyone)
+  const handleCharacterCarouselChange = (direction: 'next' | 'prev') => {
+    if (!currentProfile || characterOptions.length === 0) return;
     playSelect();
-    const currentValue = currentProfile.sprite_json[layer];
-    const currentIndex = options.findIndex(opt => opt.id === currentValue);
-    
+    const currentBase = currentProfile.sprite_json.base;
+    const currentIndex = characterOptions.findIndex(opt => opt.id === currentBase);
+
     let newIndex = 0;
     if (direction === 'next') {
-      newIndex = (currentIndex + 1) % options.length;
+      newIndex = (currentIndex + 1) % characterOptions.length;
     } else {
-      newIndex = (currentIndex - 1 + options.length) % options.length;
+      newIndex = currentIndex <= 0
+        ? characterOptions.length - 1
+        : (currentIndex - 1 + characterOptions.length) % characterOptions.length;
     }
 
-    const currentSprite = { ...currentProfile.sprite_json };
-    currentSprite[layer] = options[newIndex].id;
-    onUpdateProfile({ sprite_json: currentSprite });
+    onUpdateProfile({
+      sprite_json: {
+        base: characterOptions[newIndex].id,
+        hair: 'none',
+        outfit: 'none',
+        accessory: 'none'
+      }
+    });
   };
 
   const handlePetCarouselChange = (direction: 'next' | 'prev') => {
     if (!currentProfile) return;
     playSelect();
-    
     // Filter available pets based on current user level
-    const availablePets = petOptions.filter(pet => currentProfile.level >= pet.minLevel);
+    const availablePets = petOptions.filter(pet => currentProfile.level >= pet.min_level);
     const currentIndex = availablePets.findIndex(pet => pet.id === currentProfile.pet_id);
-    
+
     let newIndex = 0;
     if (direction === 'next') {
       newIndex = (currentIndex + 1) % availablePets.length;
     } else {
       newIndex = (currentIndex - 1 + availablePets.length) % availablePets.length;
     }
-    
     onUpdateProfile({ pet_id: availablePets[newIndex].id });
   };
+
 
   const handleEmojiCarouselChange = (direction: 'next' | 'prev') => {
     playSelect();
@@ -284,91 +296,105 @@ export const House: React.FC<HouseProps> = ({
     );
   }
 
-  // Get active item names
-  const activeBaseName = baseOptions.find(opt => opt.id === currentProfile.sprite_json.base)?.name || 'Default';
-  
-  // Filter options based on unlocked items
-  const hairOptionsFiltered = hairOptions.filter(opt => 
-    opt.id === 'hair_black' || opt.id === 'hair_brown' || unlockedCosmetics.includes(opt.id)
-  );
-  const outfitOptionsFiltered = outfitOptions.filter(opt => 
-    opt.id === 'outfit_casual' || unlockedCosmetics.includes(opt.id)
-  );
-  const accessoryOptionsFiltered = accessoryOptions.filter(opt => 
-    opt.id === 'none' || unlockedCosmetics.includes(opt.id)
-  );
-
-  const activeHairName = hairOptions.find(opt => opt.id === currentProfile.sprite_json.hair)?.name || 'Default';
-  const activeOutfitName = outfitOptions.find(opt => opt.id === currentProfile.sprite_json.outfit)?.name || 'Default';
-  const activeAccessoryName = accessoryOptions.find(opt => opt.id === currentProfile.sprite_json.accessory)?.name || 'Default';
+  // Active item names for preview UI
+  const currentBase = currentProfile.sprite_json.base;
+  const activeCharacterOpt = characterOptions.find(opt => opt.id === currentBase);
+  const activeCharacterName = activeCharacterOpt ? activeCharacterOpt.name : currentBase;
   const activePetName = petOptions.find(opt => opt.id === currentProfile.pet_id)?.name || 'Tidak Ada';
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
-      
-      {/* 1. UNIFIED CHARACTER WARDROBE (Carousel directly on left/right of big character) */}
+
+      {/* Assets loading state — show spinner overlay on character panel only */}
+      {!assetsLoaded && (
+        <div className="rpg-panel-stone p-4 text-center text-xs text-slate-400 font-bold animate-pulse">
+          ⚔️ Memuat daftar karakter dari guild...
+        </div>
+      )}
+
+      {assetsLoaded && characterOptions.length === 0 && (
+        <div className="rpg-panel-stone p-4 text-center">
+          <p className="text-xs text-amber-400 font-bold">📭 Belum ada karakter tersedia.</p>
+          <p className="text-[9px] text-slate-500 mt-1">Minta Director upload sprite karakter di tab Asset Chamber ✨</p>
+        </div>
+      )}
+
+      {/* Inventory Shortcut Button */}
+      {onOpenInventory && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => { playClick(); onOpenInventory(); }}
+            className="rpg-btn-game flex items-center gap-2 py-2 px-4 text-xs"
+          >
+            <Package size={12} /> BUKA INVENTORY
+          </button>
+        </div>
+      )}
+
+
       <div className="rpg-panel-stone p-6 relative flex flex-col items-center">
         <div className="rpg-plaque absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1">
-          <Sparkles size={12} className="text-yellow-400" /> CHARACTER WARDROBE
+          <Sparkles size={12} className="text-yellow-400" /> CHARACTER CUSTOMIZER
         </div>
         
-        <div className="flex flex-col md:flex-row items-center justify-center gap-8 mt-6 w-full max-w-3xl">
+        <div className="flex flex-col items-center justify-center gap-6 mt-6 w-full max-w-3xl">
           
-          {/* LEFT COLUMN CUSTOMIZERS */}
-          <div className="flex flex-col gap-4 w-full md:w-56">
+          {/* CAROUSEL CONTROLLER (Left/Right Buttons beside Main Preview) */}
+          <div className="flex items-center justify-center gap-6 md:gap-10 w-full">
             
-            {/* Skin */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">BODY SKIN</span>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('base', baseOptions, 'prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ◀
-                </button>
-                <span className="text-[10px] font-bold text-yellow-100 text-center flex-1 truncate">{activeBaseName}</span>
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('base', baseOptions, 'next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ▶
-                </button>
+            <button
+              type="button"
+              onClick={() => handleCharacterCarouselChange('prev')}
+              className="rpg-btn-game p-4 text-lg md:text-xl font-bold shadow-md hover:scale-105 transition-transform"
+              title="Karakter Sebelumnya"
+            >
+              ◀
+            </button>
+
+            {/* CENTER LARGE CHARACTER PREVIEW (size = 144) */}
+            <div className="flex flex-col items-center justify-center p-6 bg-gradient-to-b from-[#2b1f1a] to-[#17110e] border-4 border-[#5a3d28] rounded-lg shadow-2xl w-60 h-60 md:w-64 md:h-64 relative">
+              <div className="absolute top-2 right-3 text-[#ffd700] text-[8px] font-bold font-mono">
+                LV. {currentProfile.level}
+              </div>
+              
+              <SpriteRenderer
+                base={currentProfile.sprite_json.base}
+                hair={currentProfile.sprite_json.hair}
+                outfit={currentProfile.sprite_json.outfit}
+                accessory={currentProfile.sprite_json.accessory}
+                petId={currentProfile.pet_id}
+                size={144}
+                className="transform hover:scale-105 transition-transform drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
+              />
+              
+              <div className="mt-3 bg-slate-950/95 border border-[#cca566]/40 px-3.5 py-1 rounded flex flex-col items-center gap-0.5 shadow-md">
+                <span className="font-bold text-xs text-yellow-50">{currentProfile.name}</span>
+                <span className="text-[8px] font-semibold text-yellow-500 font-mono uppercase tracking-wider">{activeCharacterName}</span>
               </div>
             </div>
 
-            {/* Hair style */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">HAIR STYLE</span>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('hair', hairOptionsFiltered, 'prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ◀
-                </button>
-                <span className="text-[10px] font-bold text-yellow-100 text-center flex-1 truncate">{activeHairName}</span>
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('hair', hairOptionsFiltered, 'next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ▶
-                </button>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleCharacterCarouselChange('next')}
+              className="rpg-btn-game p-4 text-lg md:text-xl font-bold shadow-md hover:scale-105 transition-transform"
+              title="Karakter Selanjutnya"
+            >
+              ▶
+            </button>
 
+          </div>
+
+          {/* LOWER CONTROLS (Pet Stable & Status Emoji side by side) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-xl mt-4">
+            
             {/* Pet Stable */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">PET STABLE</span>
+            <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
+              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1.5 block text-center">PET STABLE</span>
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={() => handlePetCarouselChange('prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
                 >
                   ◀
                 </button>
@@ -376,91 +402,21 @@ export const House: React.FC<HouseProps> = ({
                 <button
                   type="button"
                   onClick={() => handlePetCarouselChange('next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
                 >
                   ▶
                 </button>
               </div>
             </div>
 
-          </div>
-
-          {/* CENTER LARGE CHARACTER PREVIEW (size = 144) */}
-          <div className="flex flex-col items-center justify-center p-6 bg-gradient-to-b from-[#2b1f1a] to-[#17110e] border-4 border-[#5a3d28] rounded-lg shadow-2xl w-64 h-64 relative">
-            <div className="absolute top-2 right-3 text-[#ffd700] text-[8px] font-bold font-mono">
-              LV. {currentProfile.level}
-            </div>
-            
-            <SpriteRenderer
-              base={currentProfile.sprite_json.base}
-              hair={currentProfile.sprite_json.hair}
-              outfit={currentProfile.sprite_json.outfit}
-              accessory={currentProfile.sprite_json.accessory}
-              petId={currentProfile.pet_id}
-              size={144}
-              className="transform hover:scale-105 transition-transform drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
-            />
-            
-            <div className="mt-3 bg-slate-950/95 border border-[#cca566]/40 px-3.5 py-1 rounded flex items-center gap-1.5 shadow-md">
-              <span className="font-bold text-xs text-yellow-50">{currentProfile.name}</span>
-            </div>
-          </div>
-
-          {/* RIGHT COLUMN CUSTOMIZERS */}
-          <div className="flex flex-col gap-4 w-full md:w-56">
-
-            {/* Outfit cloak */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">OUTFIT CLOAK</span>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('outfit', outfitOptionsFiltered, 'prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ◀
-                </button>
-                <span className="text-[10px] font-bold text-yellow-100 text-center flex-1 truncate">{activeOutfitName}</span>
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('outfit', outfitOptionsFiltered, 'next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ▶
-                </button>
-              </div>
-            </div>
-
-            {/* Head Gear */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">HEAD GEAR</span>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('accessory', accessoryOptionsFiltered, 'prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ◀
-                </button>
-                <span className="text-[10px] font-bold text-yellow-100 text-center flex-1 truncate">{activeAccessoryName}</span>
-                <button
-                  type="button"
-                  onClick={() => handleCarouselChange('accessory', accessoryOptionsFiltered, 'next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
-                >
-                  ▶
-                </button>
-              </div>
-            </div>
-
-            {/* Status Emoji Carousel */}
-            <div className="flex flex-col p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
-              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1 block text-center">STATUS EMOJI</span>
+            {/* Status Emoji */}
+            <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
+              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1.5 block text-center">STATUS EMOJI</span>
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={() => handleEmojiCarouselChange('prev')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
                 >
                   ◀
                 </button>
@@ -468,7 +424,7 @@ export const House: React.FC<HouseProps> = ({
                 <button
                   type="button"
                   onClick={() => handleEmojiCarouselChange('next')}
-                  className="rpg-btn-game py-0.5 px-2 text-[9px] font-bold"
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
                 >
                   ▶
                 </button>
@@ -480,10 +436,10 @@ export const House: React.FC<HouseProps> = ({
         </div>
       </div>
 
-      {/* 2. SUB CONTENT PANELS (Split layout bottom) */}
+      {/* 2. SUB CONTENT PANELS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        {/* Left Column: Visual Room Room View & Status Text update */}
+        {/* Left Column: Cozy Room View & Status Text */}
         <div className="flex flex-col gap-4">
           
           {/* Room Frame */}

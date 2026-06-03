@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Profile } from './lib/supabase';
 import { db } from './lib/supabase';
 import { House } from './components/House';
@@ -8,8 +8,11 @@ import { Tavern } from './components/Tavern';
 import { Library } from './components/Library';
 import { LeadersLedger } from './components/LeadersLedger';
 import { QuestBoard } from './components/QuestBoard';
+import { AssetManager } from './components/AssetManager';
+import { Inventory } from './components/Inventory';
 import { SpriteRenderer } from './components/SpriteRenderer';
-import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X } from 'lucide-react';
+import { Wilderness } from './components/Wilderness';
+import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords } from 'lucide-react';
 import { playClick, playSelect } from './lib/audio';
 
 function App() {
@@ -19,14 +22,26 @@ function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('house');
 
+  // Inventory Modal State
+  const [showInventory, setShowInventory] = useState(false);
+
   // Summon Notification State
   const [summonNotification, setSummonNotification] = useState<{ show: boolean; text: string }>({ show: false, text: '' });
 
   // Master Broadcast Ticker
-  const [broadcastTicker, setBroadcastTicker] = useState('🔥 Selamat datang di Education Guild! Silakan kustomisasi karakter Anda di House.');
+  const [broadcastTicker, setBroadcastTicker] = useState('Selamat datang di Education Guild! Silakan kustomisasi karakter Anda di House.');
+
+  // Global Timer (synced from GuildHall Director)
+  const [globalTimerDisplay, setGlobalTimerDisplay] = useState('00:00');
+  const [globalTimerRunning, setGlobalTimerRunning] = useState(false);
+  const globalTimerDurationRef = React.useRef<number>(0);
+  const globalTimerIntervalRef = React.useRef<any>(null);
 
   // User Profile Detail Modal State
   const [selectedProfileForDetail, setSelectedProfileForDetail] = useState<Profile | null>(null);
+
+  // Header Seats State
+  const [lockedSeats, setLockedSeats] = useState<string[]>([]);
 
   // Fetch all profiles from database
   const refreshProfiles = async () => {
@@ -56,6 +71,11 @@ function App() {
   useEffect(() => {
     checkSession();
     refreshProfiles();
+    // Pre-populate the asset cache so SpriteRenderer can read synchronously
+    db.refreshAssetsCache();
+
+    // Fetch initial header seat locks
+    db.getLockedHeaderSeats().then(setLockedSeats);
 
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
@@ -64,27 +84,43 @@ function App() {
       } else if (msg.type === 'ticker_update') {
         setBroadcastTicker(msg.payload.text);
       } else if (msg.type === 'summon_all') {
-        const { announcement, roomId } = msg.payload;
+        const { announcement } = msg.payload;
         setSummonNotification({ show: true, text: announcement });
-        setActiveTab('guild_hall');
-        
-        // Auto teleport self to empty seat in the room if not already seated there
-        if (currentProfile) {
-          const roomSeats = await db.getSeats(roomId);
-          const alreadySitting = roomSeats.some(s => s.user_id === currentProfile.id);
-          if (!alreadySitting) {
-            const emptySeat = roomSeats.find(s => s.user_id === null);
-            if (emptySeat) {
-              await db.claimSeat(roomId, emptySeat.id, currentProfile.id);
-              refreshProfiles();
-            }
-          }
-        }
+      } else if (msg.type === 'timer_sync') {
+        const { duration, running } = msg.payload;
+        globalTimerDurationRef.current = duration;
+        const mins = Math.floor(duration / 60).toString().padStart(2, '0');
+        const secs = (duration % 60).toString().padStart(2, '0');
+        setGlobalTimerDisplay(`${mins}:${secs}`);
+        setGlobalTimerRunning(running);
+      } else if (msg.type === 'header_seats_lock_update') {
+        setLockedSeats(msg.payload.lockedSeats);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearInterval(globalTimerIntervalRef.current);
+    };
   }, [currentProfile?.id]);
+
+  // Global Timer Countdown Effect
+  React.useEffect(() => {
+    clearInterval(globalTimerIntervalRef.current);
+    if (!globalTimerRunning) return;
+    globalTimerIntervalRef.current = setInterval(() => {
+      globalTimerDurationRef.current = Math.max(0, globalTimerDurationRef.current - 1);
+      const d = globalTimerDurationRef.current;
+      const mins = Math.floor(d / 60).toString().padStart(2, '0');
+      const secs = (d % 60).toString().padStart(2, '0');
+      setGlobalTimerDisplay(`${mins}:${secs}`);
+      if (d <= 0) {
+        setGlobalTimerRunning(false);
+        clearInterval(globalTimerIntervalRef.current);
+      }
+    }, 1000);
+    return () => clearInterval(globalTimerIntervalRef.current);
+  }, [globalTimerRunning]);
 
   // Periodic heartbeat to keep last_seen updated (Online indicator)
   useEffect(() => {
@@ -140,6 +176,13 @@ function App() {
 
   const handleUpdateProfile = async (updates: Partial<Profile>) => {
     if (!currentProfile) return;
+
+    // Level-up coin reward: +10 coins per level gained
+    if (updates.level && updates.level > currentProfile.level) {
+      const levelsGained = updates.level - currentProfile.level;
+      updates = { ...updates, coins: (currentProfile.coins || 0) + (levelsGained * 10) };
+    }
+
     const updated = await db.updateProfile(currentProfile.id, updates);
     if (updated) {
       setCurrentProfile(updated);
@@ -168,18 +211,55 @@ function App() {
     return Math.min(100, Math.max(10, (level * 10) % 100 || 80));
   };
 
+  // Claim or leave a header seat
+  const handleHeaderSeatClick = async (seatId: string, isLocked: boolean, occupant: Profile | null) => {
+    if (isLocked) return;
+    if (!currentProfile) return;
+    playSelect();
+
+    if (occupant) {
+      if (occupant.id === currentProfile.id) {
+        await db.leaveSeat(currentProfile.id);
+      }
+    } else {
+      await db.claimSeat('header', seatId, currentProfile.id);
+    }
+    refreshProfiles();
+  };
+
+  // Toggle lock status (Director Only)
+  const handleToggleLockHeaderSeat = async (seatId: string) => {
+    if (!currentProfile || currentProfile.role !== 'Director') return;
+    playClick();
+    
+    const wasLocked = lockedSeats.includes(seatId);
+    let nextLocked: string[];
+    if (wasLocked) {
+      nextLocked = lockedSeats.filter(id => id !== seatId);
+    } else {
+      nextLocked = [...lockedSeats, seatId];
+      const occupant = profiles.find(p => p.current_seat_id === seatId);
+      if (occupant) {
+        await db.leaveSeat(occupant.id);
+      }
+    }
+    
+    setLockedSeats(nextLocked);
+    await db.saveLockedHeaderSeats(nextLocked);
+    refreshProfiles();
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-black">
       
       {/* Summon Announcement Banner Popup */}
       {summonNotification.show && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-red-950 border-4 border-red-500 text-yellow-100 p-4 rounded shadow-2xl z-[9999] max-w-md w-[90vw] animate-bounce flex flex-col gap-2">
-          <div className="flex justify-between items-center border-b border-red-500/40 pb-1 font-sans">
-            <span className="font-bold text-xs text-red-400 flex items-center gap-1">🚨 PANGGILAN RAPAT DIREKTUR</span>
-            <button onClick={() => setSummonNotification({ show: false, text: '' })} className="text-slate-400 hover:text-white font-bold text-xs">X</button>
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-white border-2 border-stone-300 text-stone-900 p-4 rounded shadow-2xl z-[9999] max-w-md w-[90vw] flex flex-col gap-2">
+          <div className="flex justify-between items-center border-b border-stone-200 pb-1 font-sans">
+            <span className="font-bold text-xs text-stone-700 tracking-wide">BROADCAST</span>
+            <button onClick={() => setSummonNotification({ show: false, text: '' })} className="text-stone-400 hover:text-stone-700 font-bold text-xs">X</button>
           </div>
-          <p className="text-xs font-bold leading-normal text-yellow-50 font-sans">"{summonNotification.text}"</p>
-          <span className="text-[8px] text-slate-400 italic font-sans">Karakter Anda telah diteleportasi secara otomatis ke Round Table.</span>
+          <p className="text-xs font-bold leading-normal text-stone-850 font-sans">"{summonNotification.text}"</p>
         </div>
       )}
       
@@ -189,7 +269,7 @@ function App() {
         {/* Logo and Game Title */}
         <div className="flex items-center gap-3">
           <div className="border-2 border-[#ffd700] p-1.5 bg-[#d90429] shadow-md flex items-center justify-center">
-            <span className="text-white text-lg font-bold">⚔️</span>
+            <Sword className="text-white" size={16} />
           </div>
           <div>
             <div className="flex items-baseline gap-1.5">
@@ -201,6 +281,67 @@ function App() {
             <span className="text-[8px] rpg-font-retro text-slate-400 mt-1 block">EDUCATION DIVISION</span>
           </div>
         </div>
+
+        {/* Header Seats (visible on all pages) */}
+        {currentProfile && (
+          <div className="flex items-center gap-2.5 bg-[#2b1f1a]/40 border-2 border-[#cca566]/30 px-3.5 py-1.5 rounded shadow-inner max-w-sm">
+            {Array.from({ length: 5 }, (_, i) => {
+              const seatId = `header_seat_${i + 1}`;
+              const occupant = profiles.find(p => p.current_seat_id === seatId) || null;
+              const isLocked = lockedSeats.includes(seatId);
+              
+              return (
+                <div key={seatId} className="relative flex flex-col items-center group">
+                  <div
+                    onClick={() => handleHeaderSeatClick(seatId, isLocked, occupant)}
+                    className={`w-9 h-9 rounded border flex items-center justify-center cursor-pointer transition-all relative ${
+                      isLocked
+                        ? 'border-red-950 bg-red-950/20 text-red-500 cursor-not-allowed'
+                        : occupant
+                        ? 'border-transparent bg-transparent'
+                        : 'border-dashed border-[#cca566]/40 hover:border-amber-400 bg-black/25 hover:scale-105'
+                    }`}
+                    title={isLocked ? "Locked by Director" : occupant ? occupant.name : "Duduk di Header"}
+                  >
+                    {isLocked ? (
+                      <span className="text-xs">🔒</span>
+                    ) : occupant ? (
+                      <div className="relative">
+                        <SpriteRenderer
+                          base={occupant.sprite_json.base}
+                          hair={occupant.sprite_json.hair}
+                          outfit={occupant.sprite_json.outfit}
+                          accessory={occupant.sprite_json.accessory}
+                          petId="none"
+                          size={32}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-xs opacity-50 filter grayscale hover:grayscale-0">🪑</span>
+                    )}
+                  </div>
+
+                  {currentProfile.role === 'Director' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleLockHeaderSeat(seatId);
+                      }}
+                      className={`absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full border text-[7px] font-bold flex items-center justify-center shadow z-10 hover:scale-110 cursor-pointer ${
+                        isLocked
+                          ? 'bg-red-600 border-red-400 text-white'
+                          : 'bg-stone-700 border-stone-500 text-stone-300'
+                      }`}
+                      title={isLocked ? "Unlock Seat" : "Lock Seat"}
+                    >
+                      {isLocked ? "🔓" : "🔒"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Player Status HUD Panel */}
         {currentProfile ? (
@@ -232,11 +373,33 @@ function App() {
                   />
                 </div>
               </div>
+              
+              {/* Stats Row (Coins & Timer) */}
+              <div className="flex items-center gap-2 mt-0.5">
+                {/* Coins display */}
+                <div className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded border border-[#cca566]/20">
+                  <span className="text-[10px] font-bold text-amber-400" title="Koin Anda">🪙 {currentProfile.coins ?? 0}</span>
+                </div>
+                
+                {/* Global Timer (always visible, showing 00:00 when idle/paused) */}
+                <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded border font-mono ${
+                  globalTimerRunning && globalTimerDurationRef.current <= 60
+                    ? 'border-red-700 bg-red-950/60 text-red-300 animate-pulse'
+                    : globalTimerRunning && globalTimerDurationRef.current <= 300
+                    ? 'border-yellow-700 bg-yellow-950/40 text-yellow-300'
+                    : 'border-[#cca566]/25 bg-black/40 text-amber-400'
+                }`}>
+                  <span className="text-[9px] font-bold" title="Global Session Timer">⏱️ {globalTimerDisplay}</span>
+                  {!globalTimerRunning && globalTimerDisplay !== '00:00' && (
+                    <span className="text-[6px] text-slate-500 uppercase ml-0.5">paused</span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <button
               onClick={handleLogout}
-              className="text-red-400 hover:text-red-200 p-2 rounded bg-slate-950/80 border border-red-900 transition-colors ml-2"
+              className="text-red-400 hover:text-red-200 p-2 rounded bg-slate-950/80 border border-red-900 transition-colors ml-2 cursor-pointer"
               title="Leave House"
             >
               <LogOut size={14} />
@@ -342,8 +505,10 @@ function App() {
                 { id: 'boat', name: 'Boat', icon: Ship },
                 { id: 'tavern', name: 'Tavern', icon: Flame },
                 { id: 'library', name: 'Library', icon: BookOpen },
+                { id: 'wilderness', name: 'Wilderness', icon: Swords },
                 currentProfile.role !== 'Staff' ? { id: 'ledger', name: 'Ledger', icon: UserCheck } : null,
-                { id: 'quest', name: 'Quest Board', icon: Star }
+                { id: 'quest', name: 'Quest Board', icon: Star },
+                currentProfile.role === 'Director' ? { id: 'asset_chamber', name: 'Asset Chamber', icon: Sparkles } : null,
               ].filter(Boolean) as { id: string; name: string; icon: any }[]).map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -382,6 +547,7 @@ function App() {
                     currentProfile={currentProfile}
                     onLogin={handleLogin}
                     onUpdateProfile={handleUpdateProfile}
+                    onOpenInventory={() => setShowInventory(true)}
                   />
                 )}
                 {activeTab === 'guild_hall' && (
@@ -434,12 +600,33 @@ function App() {
                     currentProfile={currentProfile}
                   />
                 )}
+                {activeTab === 'wilderness' && (
+                  <Wilderness
+                    currentProfile={currentProfile}
+                    profiles={profiles}
+                    onUpdateProfile={handleUpdateProfile}
+                  />
+                )}
+                {activeTab === 'asset_chamber' && currentProfile.role === 'Director' && (
+                  <AssetManager
+                    onAssetsUpdated={() => db.refreshAssetsCache()}
+                  />
+                )}
               </>
             )}
           </div>
         </main>
 
       </div>
+
+      {/* Inventory Modal */}
+      {showInventory && currentProfile && (
+        <Inventory
+          currentProfile={currentProfile}
+          onClose={() => setShowInventory(false)}
+          onUpdateProfile={handleUpdateProfile}
+        />
+      )}
 
       {/* User Profile Detail Modal */}
       {selectedProfileForDetail && (

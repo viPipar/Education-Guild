@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Profile } from '../lib/supabase';
-import { Shield, ExternalLink, Calendar, Plus, Award } from 'lucide-react';
-import { playSelect } from '../lib/audio';
+import { Shield, ExternalLink, Calendar, Plus, Award, Trash2, Edit } from 'lucide-react';
+import { playClick, playSelect } from '../lib/audio';
 
 interface Quest {
   id: string;
@@ -20,6 +20,7 @@ interface QuestBoardProps {
 export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
   const [quests, setQuests] = useState<Quest[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingQuestId, setEditingQuestId] = useState<string | null>(null);
   
   // New quest form state
   const [title, setTitle] = useState('');
@@ -72,33 +73,71 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
   const handleAddQuest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !spreadsheetUrl.trim()) return;
+    playClick();
 
-    const newQuest: Quest = {
-      id: Date.now().toString(),
-      title,
-      description,
-      difficulty,
-      rewardXp,
-      spreadsheetUrl,
-      deadline
-    };
+    let updatedQuests: Quest[];
+    if (editingQuestId) {
+      updatedQuests = quests.map(q => q.id === editingQuestId ? {
+        ...q,
+        title: title.trim(),
+        description: description.trim(),
+        difficulty,
+        rewardXp,
+        spreadsheetUrl: spreadsheetUrl.trim(),
+        deadline
+      } : q);
+    } else {
+      const newQuest: Quest = {
+        id: Date.now().toString(),
+        title: title.trim(),
+        description: description.trim(),
+        difficulty,
+        rewardXp,
+        spreadsheetUrl: spreadsheetUrl.trim(),
+        deadline
+      };
+      updatedQuests = [...quests, newQuest];
+    }
 
-    const updatedQuests = [...quests, newQuest];
     setQuests(updatedQuests);
     localStorage.setItem('rpg_quests', JSON.stringify(updatedQuests));
+    closeForm();
+  };
 
-    // Reset Form
+  const handleEditQuest = (quest: Quest) => {
+    playSelect();
+    setEditingQuestId(quest.id);
+    setTitle(quest.title);
+    setDescription(quest.description);
+    setDifficulty(quest.difficulty);
+    setRewardXp(quest.rewardXp);
+    setSpreadsheetUrl(quest.spreadsheetUrl);
+    setDeadline(quest.deadline);
+    setShowAddForm(true);
+  };
+
+  const handleDeleteQuest = (id: string) => {
+    playClick();
+    const updated = quests.filter(q => q.id !== id);
+    setQuests(updated);
+    localStorage.setItem('rpg_quests', JSON.stringify(updated));
+  };
+
+  const closeForm = () => {
+    playClick();
+    setShowAddForm(false);
+    setEditingQuestId(null);
     setTitle('');
     setDescription('');
     setDifficulty('Easy');
     setRewardXp(10);
     setSpreadsheetUrl('https://docs.google.com/spreadsheets');
-    setShowAddForm(false);
+    setDeadline('2026-06-15');
   };
 
   const getDifficultyColor = (diff: string) => {
     switch (diff) {
-      case 'Hard': return 'border-red-600 bg-red-900/20 text-red-700';
+      case 'Hard': return 'border-red-650 bg-red-900/20 text-red-700';
       case 'Medium': return 'border-orange-500 bg-orange-900/20 text-orange-700';
       case 'Easy':
       default: return 'border-green-600 bg-green-900/20 text-green-700';
@@ -115,12 +154,11 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
             <Shield size={14} className="text-yellow-400" /> GUILD QUEST BOARD
           </div>
           <p className="text-[10px] text-slate-400 font-medium">
-            Daftar penugasan aktif Divisi Education. Ambil quest untuk menyelesaikan tugas!
+            Daftar penugasan aktif Divisi Education. Halo {currentProfile.name}, tambah, edit, atau hapus quest misi Anda di sini!
           </p>
         </div>
 
-        {/* Add quest (Director / Manager only) */}
-        {currentProfile.role !== 'Staff' && !showAddForm && (
+        {!showAddForm && (
           <button
             onClick={() => {
               playSelect();
@@ -139,8 +177,8 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
         {showAddForm && (
           <div className="lg:col-span-4 rpg-panel-wood h-fit">
             <h3 className="rpg-font-retro text-[9px] text-[#cca566] mb-4 flex items-center justify-between border-b border-stone-700 pb-2">
-              <span>📜 BUAT QUEST BARU</span>
-              <button onClick={() => setShowAddForm(false)} className="text-red-400 hover:text-red-300 font-bold">X</button>
+              <span>{editingQuestId ? 'EDIT QUEST' : 'BUAT QUEST BARU'}</span>
+              <button onClick={closeForm} className="text-red-400 hover:text-red-300 font-bold">X</button>
             </h3>
             
             <form onSubmit={handleAddQuest} className="space-y-4 text-xs font-semibold">
@@ -162,7 +200,7 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
                   placeholder="Tulis instruksi singkat..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full h-16 bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none"
+                  className="w-full h-16 bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none resize-none"
                 />
               </div>
 
@@ -186,7 +224,7 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
                     min="5"
                     max="100"
                     value={rewardXp}
-                    onChange={(e) => setRewardXp(parseInt(e.target.value))}
+                    onChange={(e) => setRewardXp(parseInt(e.target.value) || 10)}
                     className="w-full bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none"
                   />
                 </div>
@@ -214,9 +252,16 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
                 />
               </div>
 
-              <button type="submit" className="w-full rpg-btn-game">
-                PUBLISH MISI QUEST
-              </button>
+              <div className="flex flex-col gap-2">
+                <button type="submit" className="w-full rpg-btn-game">
+                  {editingQuestId ? 'SIMPAN PERUBAHAN' : 'PUBLISH MISI QUEST'}
+                </button>
+                {editingQuestId && (
+                  <button type="button" onClick={closeForm} className="w-full py-1.5 bg-slate-900 border border-slate-700 rounded text-slate-400 hover:text-white hover:bg-slate-800 text-[10px] font-bold">
+                    BATAL EDIT (BUAT BARU)
+                  </button>
+                )}
+              </div>
             </form>
           </div>
         )}
@@ -226,7 +271,7 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
           {quests.map((quest) => (
             <div
               key={quest.id}
-              className="rpg-parchment flex flex-col justify-between min-h-[240px] relative transition-transform hover:-translate-y-1"
+              className="rpg-parchment flex flex-col justify-between min-h-[250px] relative transition-transform hover:-translate-y-1"
             >
               <div>
                 {/* Header info */}
@@ -234,9 +279,28 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
                   <span className={`text-[8px] font-mono px-2 py-0.5 rounded border font-bold ${getDifficultyColor(quest.difficulty)}`}>
                     {quest.difficulty.toUpperCase()}
                   </span>
-                  <span className="text-[9px] text-stone-600 font-bold font-mono flex items-center gap-1">
-                    <Calendar size={11} /> Limit: {quest.deadline}
-                  </span>
+                  
+                  {/* Edit and Delete Actions */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleEditQuest(quest)}
+                      className="p-1 bg-[#d2b48c]/30 hover:bg-[#b58a55]/30 border border-[#5c3a21]/50 rounded text-yellow-900 transition-colors"
+                      title="Edit Quest"
+                    >
+                      <Edit size={10} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteQuest(quest.id)}
+                      className="p-1 bg-red-100 hover:bg-red-200 border border-red-400 rounded text-red-700 transition-colors"
+                      title="Hapus Quest"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-[9px] text-stone-600 font-bold font-mono flex items-center gap-1 mb-2">
+                  <Calendar size={11} /> Limit: {quest.deadline}
                 </div>
 
                 {/* Title */}
@@ -251,35 +315,36 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
               </div>
 
               {/* Bottom footer action */}
-              <div className="rpg-parchment-divider"></div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-[9.5px] text-yellow-700 font-bold font-mono flex items-center gap-0.5">
-                  <Award size={13} className="text-yellow-600" /> +{quest.rewardXp} XP
-                </span>
-                
-                {/* Redirects to User's Spreadsheet */}
-                <a
-                  href={quest.spreadsheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => playSelect()}
-                  className="rpg-btn-game text-stone-900 py-1.5 px-3 flex items-center gap-1.5"
-                  style={{
-                    background: 'linear-gradient(to bottom, #d2b48c 0%, #b58a55 100%)',
-                    boxShadow: '0 3px 0 #5c3a21',
-                    border: '2px solid #5c3a21',
-                    outline: 'none'
-                  }}
-                >
-                  BUKA MISI <ExternalLink size={10} />
-                </a>
+              <div>
+                <div className="rpg-parchment-divider mb-3"></div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[9.5px] text-yellow-700 font-bold font-mono flex items-center gap-0.5">
+                    <Award size={13} className="text-yellow-600" /> +{quest.rewardXp} XP
+                  </span>
+                  
+                  {/* Redirects to User's Spreadsheet */}
+                  <a
+                    href={quest.spreadsheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => playSelect()}
+                    className="rpg-btn-game text-stone-900 py-1.5 px-3 flex items-center gap-1.5"
+                    style={{
+                      background: 'linear-gradient(to bottom, #d2b48c 0%, #b58a55 100%)',
+                      boxShadow: '0 3px 0 #5c3a21',
+                      border: '2px solid #5c3a21',
+                      outline: 'none'
+                    }}
+                  >
+                    BUKA MISI <ExternalLink size={10} />
+                  </a>
+                </div>
               </div>
             </div>
           ))}
 
           {quests.length === 0 && (
-            <div className="col-span-full py-16 text-center border-4 border-dashed border-[#5a3d28]/40 rounded bg-[#1b1613]">
+            <div className="col-span-full py-16 text-center border-4 border-dashed border-[#5a3d28]/40 rounded bg-[#1b1613]/30">
               <p className="text-xs text-slate-500 italic">Tidak ada quest aktif...</p>
             </div>
           )}
