@@ -240,6 +240,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
         )}
       </div>
 
+      {/* Ticker Input (shown below ticker, not wrapping the map) */}
       {showTickerInput && currentProfile.role !== 'Staff' && (
         <div className="rpg-panel-wood p-2.5 flex items-center gap-2 border border-amber-500/50 rounded animate-fade-in">
           <span className="text-[9px] text-[#cca566] font-bold rpg-font-retro mr-1">TICKER BARU:</span>
@@ -272,7 +273,59 @@ export const GuildHall: React.FC<GuildHallProps> = ({
             SIMPAN
           </button>
         </div>
+      )}
 
+      {/* Guild Hall HUD Control Bar (Portal + URL Config) */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-slate-950/85 border border-[#cca566]/30 rounded">
+        <div className="flex items-center gap-3">
+          <span className="text-yellow-500 font-bold text-xs uppercase tracking-wide rpg-font-retro">
+            ROUND TABLE GUILD HALL
+          </span>
+          <a
+            href={localDiscordUrl ? (localDiscordUrl.startsWith('http://') || localDiscordUrl.startsWith('https://') ? localDiscordUrl : 'https://' + localDiscordUrl) : '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => playSelect()}
+            className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] border-2 border-purple-400/50 hover:scale-105"
+            title="Buka Portal Voice Channel"
+          >
+            <svg className="w-5 h-5 animate-spin" style={{ animationDuration: '4s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span className="text-[7px] font-extrabold tracking-wider mt-0.5 leading-none">PORTAL</span>
+          </a>
+        </div>
+
+        {currentProfile.role !== 'Staff' && (
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="font-bold text-[#cca566] uppercase">PORTAL URL:</span>
+            <input
+              type="text"
+              value={localDiscordUrl}
+              onChange={(e) => setLocalDiscordUrl(e.target.value)}
+              placeholder="https://discord.gg/..."
+              className="bg-black/60 text-yellow-100 border border-[#5a3d28] rounded px-2 py-1 w-52 text-[9px] font-semibold focus:outline-none focus:border-amber-500"
+            />
+            <button
+              onClick={() => {
+                playClick();
+                if (onUpdateRoomConfig) {
+                  onUpdateRoomConfig('guild_hall', { discord_url: localDiscordUrl });
+                }
+              }}
+              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-[9px] rounded transition-colors"
+            >
+              SAVE
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        {/* Map Area (8 Spans) */}
+        <div className="lg:col-span-8 flex flex-col gap-3">
           <div className="map-scroll-container">
             <div className="rpg-panel border-4 h-[550px] relative overflow-hidden rounded select-none bg-[#2e2620] min-w-[750px] lg:min-w-0" style={{
               backgroundImage: 'url(/assets/rooms/round_table_bg.jpg)',
@@ -398,7 +451,6 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               </button>
             </form>
           </div>
-
         </div>
 
         {/* Right Side: Global Timer & Room Summary (4 Spans) */}

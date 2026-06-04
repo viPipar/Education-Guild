@@ -54,6 +54,13 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   // Undo/Redo stacks
   const [history, setHistory] = useState<{ elements: BoardElement[]; strokes: WhiteboardStroke[] }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  // Use refs to avoid stale closures in callbacks and event listeners
+  const historyRef = useRef<{ elements: BoardElement[]; strokes: WhiteboardStroke[] }[]>([]);
+  const historyIndexRef = useRef(-1);
+
+  // Keep refs in sync with state
+  useEffect(() => { historyRef.current = history; }, [history]);
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
 
   // Drag and Drop (Select Tool)
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -109,12 +116,19 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
         setStrokes(remoteStrokes);
         setComments(remoteComments);
         
-        // Sync history stacks
+        // Push remote state into local history so undo can go back
+        // Use the ref to avoid stale closure capturing wrong historyIndex
         setHistory(prev => {
-          const cut = prev.slice(0, historyIndex + 1);
-          return [...cut, { elements: remoteElements, strokes: remoteStrokes }];
+          const cut = prev.slice(0, historyIndexRef.current + 1);
+          const next = [...cut, { elements: remoteElements, strokes: remoteStrokes }];
+          historyRef.current = next;
+          return next;
         });
-        setHistoryIndex(prev => prev + 1);
+        setHistoryIndex(prev => {
+          const next = prev + 1;
+          historyIndexRef.current = next;
+          return next;
+        });
       } else if (msg.type === 'whiteboard_typing' && msg.payload.roomId === roomId) {
         // Realtime collaborative typing, dragging, rotating sync (not pushed to DB history)
         const { elementId, updates } = msg.payload;
@@ -167,6 +181,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   }, [strokes]);
 
   // Keyboard shortcut listener (Ctrl+Z and Ctrl+Y)
+  // Uses stable handleUndo/handleRedo refs — no deps needed
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
@@ -175,17 +190,40 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
       if (e.ctrlKey && e.key.toLowerCase() === 'z') {
         if (isTyping) return;
         e.preventDefault();
-        handleUndo();
+        // Call directly via refs to avoid stale closure
+        const idx = historyIndexRef.current;
+        const hist = historyRef.current;
+        if (idx > 0) {
+          playClick();
+          const prevIndex = idx - 1;
+          historyIndexRef.current = prevIndex;
+          setHistoryIndex(prevIndex);
+          const prev = hist[prevIndex];
+          setElements(prev.elements);
+          setStrokes(prev.strokes);
+          db.saveWhiteboard(roomId, prev.strokes as any, prev.elements as any, comments);
+        }
       } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
         if (isTyping) return;
         e.preventDefault();
-        handleRedo();
+        const idx = historyIndexRef.current;
+        const hist = historyRef.current;
+        if (idx < hist.length - 1) {
+          playClick();
+          const nextIndex = idx + 1;
+          historyIndexRef.current = nextIndex;
+          setHistoryIndex(nextIndex);
+          const next = hist[nextIndex];
+          setElements(next.elements);
+          setStrokes(next.strokes);
+          db.saveWhiteboard(roomId, next.strokes as any, next.elements as any, comments);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [history, historyIndex]);
+  }, [roomId, comments]);
 
   // Handle pinch/ctrl+wheel zoom on the board container
   useEffect(() => {
@@ -211,24 +249,33 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   }, []);
 
   // Save changes to Supabase Whiteboard and local history
+  // Uses refs to avoid stale closure on historyIndex
   const saveState = async (newElements: BoardElement[], newStrokes: WhiteboardStroke[], pushToHistory = true) => {
     setElements(newElements);
     setStrokes(newStrokes);
     await db.saveWhiteboard(roomId, newStrokes as any, newElements as any, comments);
 
     if (pushToHistory) {
-      const updatedHistory = history.slice(0, historyIndex + 1);
-      setHistory([...updatedHistory, { elements: newElements, strokes: newStrokes }]);
+      // Always slice from the live ref to avoid acting on stale state
+      const currentIdx = historyIndexRef.current;
+      const updatedHistory = historyRef.current.slice(0, currentIdx + 1);
+      const nextHistory = [...updatedHistory, { elements: newElements, strokes: newStrokes }];
+      historyRef.current = nextHistory;
+      historyIndexRef.current = updatedHistory.length;
+      setHistory(nextHistory);
       setHistoryIndex(updatedHistory.length);
     }
   };
 
   const handleUndo = () => {
-    if (historyIndex > 0) {
+    const idx = historyIndexRef.current;
+    const hist = historyRef.current;
+    if (idx > 0) {
       playClick();
-      const prevIndex = historyIndex - 1;
+      const prevIndex = idx - 1;
+      historyIndexRef.current = prevIndex;
       setHistoryIndex(prevIndex);
-      const prev = history[prevIndex];
+      const prev = hist[prevIndex];
       setElements(prev.elements);
       setStrokes(prev.strokes);
       db.saveWhiteboard(roomId, prev.strokes as any, prev.elements as any, comments);
@@ -236,11 +283,14 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   };
 
   const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
+    const idx = historyIndexRef.current;
+    const hist = historyRef.current;
+    if (idx < hist.length - 1) {
       playClick();
-      const nextIndex = historyIndex + 1;
+      const nextIndex = idx + 1;
+      historyIndexRef.current = nextIndex;
       setHistoryIndex(nextIndex);
-      const next = history[nextIndex];
+      const next = hist[nextIndex];
       setElements(next.elements);
       setStrokes(next.strokes);
       db.saveWhiteboard(roomId, next.strokes as any, next.elements as any, comments);
