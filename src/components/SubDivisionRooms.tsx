@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import type { Profile, Seat, ChecklistItem } from '../lib/supabase';
+import React, { useState, useEffect, useRef } from 'react';
+import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
 import { ClipboardList, Plus, Check, Trash2 } from 'lucide-react';
@@ -12,6 +12,8 @@ interface SubDivisionRoomsProps {
   onRefreshProfiles: () => void;
   activeRoom: 'carriage' | 'boat';
   onSeatClick?: (seatId: string, isLeave: boolean) => void;
+  roomConfig?: RoomConfig;
+  onUpdateRoomConfig?: (roomId: string, updates: Partial<RoomConfig>) => void;
 }
 
 export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
@@ -20,6 +22,8 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   onRefreshProfiles,
   activeRoom,
   onSeatClick,
+  roomConfig,
+  onUpdateRoomConfig,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync(activeRoom, profiles), [profiles, activeRoom]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -29,6 +33,116 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   // Chat Bubble State
   const [chatMessage, setChatMessage] = useState('');
   const [activeBubbles, setActiveBubbles] = useState<{ [userId: string]: { text: string, timerId: any } }>({});
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationId: number;
+    let width = canvas.width = canvas.offsetWidth;
+    let height = canvas.height = canvas.offsetHeight;
+
+    const handleResize = () => {
+      width = canvas.width = canvas.offsetWidth;
+      height = canvas.height = canvas.offsetHeight;
+    };
+    window.addEventListener('resize', handleResize);
+
+    const intensity = roomConfig?.weather_intensity ?? 0;
+
+    // Define particles
+    interface Particle {
+      x: number;
+      y: number;
+      speed: number;
+      size: number;
+      drift: number;
+    }
+
+    const particles: Particle[] = [];
+    const maxParticles = intensity * 20;
+
+    // Initialize particles
+    for (let i = 0; i < maxParticles; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        speed: Math.random() * 2 + (activeRoom === 'boat' ? 4 : 1), // Rain is faster, snow is slower
+        size: activeRoom === 'boat' ? Math.random() * 1.5 + 0.5 : Math.random() * 2.5 + 1.5, // Snow is larger
+        drift: Math.random() * 0.5 - 0.25
+      });
+    }
+
+    const animate = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      if (intensity > 0) {
+        if (activeRoom === 'boat') {
+          // RAIN EFFECT (Slanted lines falling down and to the right)
+          ctx.strokeStyle = 'rgba(174, 207, 238, 0.45)';
+          ctx.lineWidth = 1;
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + 4, p.y + p.speed * 2.5);
+            ctx.stroke();
+
+            // Update position
+            p.x += 4;
+            p.y += p.speed * 2.5;
+
+            // Boundary wrap
+            if (p.y > height) {
+              p.y = -10;
+              p.x = Math.random() * width;
+            }
+            if (p.x > width) {
+              p.x = -10;
+              p.y = Math.random() * height;
+            }
+          }
+        } else {
+          // SNOW EFFECT (Drifting circles falling down and to the right)
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Update position
+            p.y += p.speed;
+            p.x += p.drift + 1.5; // Wind blowing right (simulate carriage moving left)
+
+            // Boundary wrap
+            if (p.y > height) {
+              p.y = -10;
+              p.x = Math.random() * width;
+            }
+            if (p.x > width) {
+              p.x = -10;
+              p.y = Math.random() * height;
+            }
+          }
+        }
+      }
+
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animationId);
+    };
+  }, [activeRoom, roomConfig?.weather_intensity]);
 
   const loadRoomData = async () => {
     const c = await db.getChecklist(activeRoom);
@@ -115,6 +229,63 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   return (
     <div className="flex flex-col gap-4 p-2">
       
+      {/* Room HUD controls (Discord + weather) */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-slate-950/85 border border-[#cca566]/30 rounded">
+        <div className="flex items-center gap-3">
+          <span className="text-yellow-500 font-bold text-xs uppercase tracking-wide rpg-font-retro">
+            {activeRoom === 'carriage' ? 'Moving Carriage' : 'Rowing Boat'}
+          </span>
+          <a
+            href={roomConfig?.discord_url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => playSelect()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded text-[10px] font-bold transition-all shadow-[0_0_8px_rgba(147,51,234,0.5)] border border-purple-400/30"
+          >
+            <svg className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '6s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            PORTAL
+          </a>
+        </div>
+
+        {currentProfile.role !== 'Staff' && (
+          <div className="flex items-center gap-4 flex-wrap text-[10px]">
+            <div className="flex items-center gap-2 border-r border-slate-800 pr-4">
+              <span className="font-bold text-[#cca566] uppercase">INTENSITAS CUACA:</span>
+              <input
+                type="range"
+                min="0"
+                max="5"
+                value={roomConfig?.weather_intensity ?? 0}
+                onChange={(e) => {
+                  if (onUpdateRoomConfig) {
+                    onUpdateRoomConfig(activeRoom, { weather_intensity: parseInt(e.target.value) });
+                  }
+                }}
+                className="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-950 rounded-lg appearance-none"
+              />
+              <span className="font-bold font-mono text-yellow-400">{roomConfig?.weather_intensity ?? 0}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#cca566] uppercase">DISCORD URL:</span>
+              <input
+                type="text"
+                value={roomConfig?.discord_url ?? ''}
+                onChange={(e) => {
+                  if (onUpdateRoomConfig) {
+                    onUpdateRoomConfig(activeRoom, { discord_url: e.target.value });
+                  }
+                }}
+                placeholder="https://discord.gg/..."
+                className="bg-black/60 text-yellow-100 border border-[#5a3d28] rounded px-2 py-1 w-52 text-[9px] font-semibold focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
@@ -125,6 +296,8 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           {activeRoom === 'carriage' && (
             <div className="map-scroll-container">
               <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded snow-forest-scroll min-w-[750px] lg:min-w-0 flex items-center justify-center">
+                {/* Weather Canvas Overlay */}
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
 
               {/* CARRIAGE FRAME (With shake animation and wheels offset) */}
               <div
@@ -230,6 +403,8 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           {activeRoom === 'boat' && (
             <div className="map-scroll-container">
               <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded sea-waves-scroll min-w-[750px] lg:min-w-0">
+                {/* Weather Canvas Overlay */}
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
               
               {/* Parallax Clouds & Water waves */}
               <div className="clouds"></div>

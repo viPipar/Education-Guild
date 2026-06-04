@@ -48,6 +48,12 @@ export interface Seat {
   y: number;
 }
 
+export interface RoomConfig {
+  room_id: string;
+  weather_intensity: number;
+  discord_url: string;
+}
+
 export interface Assessment {
   id: number;
   manager_id: string;
@@ -1510,6 +1516,65 @@ export const db = {
     }
     this.broadcast('ticker_update', { text });
     return true;
+  },
+
+  async getRoomConfigs(): Promise<RoomConfig[]> {
+    const defaultConfigs: RoomConfig[] = [
+      { room_id: 'guild_hall', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68' },
+      { room_id: 'carriage', weather_intensity: 2, discord_url: 'https://discord.gg/CX5KjcGMyP' },
+      { room_id: 'boat', weather_intensity: 2, discord_url: 'https://discord.gg/QaB82GYhmy' },
+      { room_id: 'tavern', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68' }
+    ];
+
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase.from('rpg_room_configs').select('*');
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const merged = defaultConfigs.map(def => {
+            const dbVal = data.find(d => d.room_id === def.room_id);
+            return dbVal ? { ...def, ...dbVal } : def;
+          });
+          return merged;
+        }
+      } catch (err) {
+        console.warn('Failed to load room configs from Supabase, using defaults:', err);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('rpg_room_configs');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+
+    localStorage.setItem('rpg_room_configs', JSON.stringify(defaultConfigs));
+    return defaultConfigs;
+  },
+
+  async updateRoomConfig(roomId: string, updates: Partial<RoomConfig>): Promise<RoomConfig | null> {
+    const configs = await this.getRoomConfigs();
+    const index = configs.findIndex(c => c.room_id === roomId);
+    if (index === -1) return null;
+
+    const updated = { ...configs[index], ...updates };
+    configs[index] = updated;
+    localStorage.setItem('rpg_room_configs', JSON.stringify(configs));
+
+    if (!isMock && supabase) {
+      try {
+        const { error } = await supabase
+          .from('rpg_room_configs')
+          .upsert({ room_id: roomId, ...updates }, { onConflict: 'room_id' });
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to update room config in Supabase:', err);
+      }
+    }
+
+    this.broadcast('room_config_update', { roomId, updates });
+    return updated;
   },
 
   broadcast(type: string, payload: any) {

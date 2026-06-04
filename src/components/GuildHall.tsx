@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Profile, Seat, ChecklistItem } from '../lib/supabase';
+import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
 import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info } from 'lucide-react';
@@ -13,6 +13,8 @@ interface GuildHallProps {
   broadcastTicker: string;
   onSetTicker: (text: string) => void;
   onSeatClick?: (seatId: string, isLeave: boolean) => void;
+  roomConfig?: RoomConfig;
+  onUpdateRoomConfig?: (roomId: string, updates: Partial<RoomConfig>) => void;
 }
 
 export const GuildHall: React.FC<GuildHallProps> = ({
@@ -22,6 +24,8 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   broadcastTicker,
   onSetTicker,
   onSeatClick,
+  roomConfig,
+  onUpdateRoomConfig,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('guild_hall', profiles), [profiles]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -276,6 +280,35 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               backgroundPosition: 'center',
               backgroundRepeat: 'no-repeat'
             }}>
+            
+            {/* DISCORD BUTTON OVERLAY */}
+            <div className="absolute top-2 right-2 flex items-center gap-2 z-30 bg-slate-950/80 border border-[#cca566]/30 p-1.5 rounded">
+              <a
+                href={roomConfig?.discord_url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => playSelect()}
+                className="flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded text-[8.5px] font-bold transition-all shadow-[0_0_8px_rgba(147,51,234,0.5)] border border-purple-400/30"
+              >
+                <svg className="w-3 h-3 animate-spin" style={{ animationDuration: '6s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                PORTAL
+              </a>
+              {currentProfile.role !== 'Staff' && (
+                <input
+                  type="text"
+                  value={roomConfig?.discord_url ?? ''}
+                  onChange={(e) => {
+                    if (onUpdateRoomConfig) {
+                      onUpdateRoomConfig('guild_hall', { discord_url: e.target.value });
+                    }
+                  }}
+                  placeholder="Discord URL..."
+                  className="bg-black/60 text-yellow-100 border border-[#5a3d28] rounded px-1.5 py-0.5 w-32 text-[8px] font-semibold focus:outline-none focus:border-amber-500"
+                />
+              )}
+            </div>
             
             {/* NOTICE BOARD (Figma Notice Board overlay over background) */}
             <div

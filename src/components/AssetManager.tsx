@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { RpgAsset, Rarity, Profile } from '../lib/supabase';
 import { db, DEFAULT_ASSETS } from '../lib/supabase';
-import { Upload, Trash2, Image, Sparkles, ShieldAlert, RefreshCw, Coins, Gift, Edit } from 'lucide-react';
+import { Upload, Trash2, Image, Sparkles, ShieldAlert, RefreshCw, Coins, Gift, Edit, Users } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
 interface AssetManagerProps {
@@ -37,7 +37,18 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
   const [filterType, setFilterType] = useState<'all' | 'character' | 'pet' | 'cosmetic'>('all');
 
   // Panel switcher
-  const [activePanel, setActivePanel] = useState<'assets' | 'coins'>('assets');
+  const [activePanel, setActivePanel] = useState<'assets' | 'coins' | 'users'>('assets');
+
+  // User Manager state
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState<'Director' | 'Manager' | 'Staff'>('Staff');
+  const [editSubDiv, setEditSubDiv] = useState<'Academic' | 'Pub' | 'Project' | 'Comp' | 'All'>('Academic');
+  const [editLevel, setEditLevel] = useState(1);
+  const [editCoins, setEditCoins] = useState(0);
+  const [userMsg, setUserMsg] = useState('');
+  const [userError, setUserError] = useState('');
+  const [userLoading, setUserLoading] = useState(false);
 
   // Coin manager state
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -202,6 +213,54 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
     setCoinLoading(false);
   };
 
+  // ── User Management handlers ──────────────────────────────────────────────
+  const handleSelectUser = (p: Profile) => {
+    playSelect();
+    setSelectedUserId(p.id);
+    setEditName(p.name);
+    setEditRole(p.role);
+    setEditSubDiv(p.sub_div_id);
+    setEditLevel(p.level);
+    setEditCoins(p.coins ?? 0);
+    setUserMsg('');
+    setUserError('');
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!editName.trim()) {
+      setUserError('❌ Nama anggota tidak boleh kosong.');
+      return;
+    }
+    playClick();
+    setUserLoading(true);
+    setUserMsg('');
+    setUserError('');
+
+    try {
+      const result = await db.updateProfile(selectedUserId, {
+        name: editName.trim(),
+        role: editRole,
+        sub_div_id: editSubDiv,
+        level: editLevel,
+        coins: editCoins,
+      });
+
+      if (result) {
+        setUserMsg('✅ Profil anggota berhasil diperbarui!');
+        await loadData();
+      } else {
+        setUserError('❌ Gagal memperbarui profil.');
+      }
+    } catch (err) {
+      console.error(err);
+      setUserError('❌ Terjadi kesalahan.');
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
   const filteredAssets = filterType === 'all' ? assets : assets.filter(a => a.type === filterType);
   const customAssets  = filteredAssets.filter(a => !DEFAULT_ASSETS.some(d => d.id === a.id));
   const builtinAssets = filteredAssets.filter(a => DEFAULT_ASSETS.some(d => d.id === a.id));
@@ -245,6 +304,14 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
           }`}
         >
           <Coins size={10} /> DISTRIBUSI KOIN
+        </button>
+        <button
+          onClick={() => { playSelect(); setActivePanel('users'); }}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-bold border transition-all ${
+            activePanel === 'users' ? 'bg-amber-600 border-amber-400 text-stone-900' : 'bg-[#16110e] border-[#5a3d28] text-slate-400 hover:border-amber-600'
+          }`}
+        >
+          <Users size={10} /> MANAJEMEN ANGGOTA
         </button>
       </div>
 
@@ -391,7 +458,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                     filterType === t ? 'bg-amber-600 border-amber-400 text-stone-900' : 'bg-[#16110e] border-[#5a3d28] text-slate-400 hover:border-amber-600'
                   }`}
                 >
-                  {t === 'all' ? '📋 Semua' : TYPE_LABELS[t]}
+                  {t === 'all' ? 'Semua' : TYPE_LABELS[t]}
                 </button>
               ))}
             </div>
@@ -404,7 +471,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                 {customAssets.length > 0 && (
                   <div>
                     <p className="text-[8px] text-amber-500 font-bold rpg-font-retro mb-1.5 border-b border-amber-800/30 pb-1">
-                      🎨 ASET KUSTOM
+                      ASET KUSTOM
                     </p>
                     {customAssets.map(asset => (
                       <AssetRow key={asset.id} asset={asset} isDefault={false}
@@ -417,7 +484,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                 {builtinAssets.length > 0 && (
                   <div className="mt-2">
                     <p className="text-[8px] text-slate-500 font-bold rpg-font-retro mb-1.5 border-b border-slate-800/30 pb-1">
-                      🔒 ASET BAWAAN
+                      ASET BAWAAN
                     </p>
                     {builtinAssets.map(asset => (
                       <AssetRow key={asset.id} asset={asset} isDefault={true} isDeleting={false} onDelete={() => {}} />
@@ -495,6 +562,166 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
             ))}
             {profiles.length === 0 && (
               <p className="text-center text-slate-500 text-xs py-8">Tidak ada anggota ditemukan.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── USER PANEL ── */}
+      {activePanel === 'users' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Side: Members List (7 Spans) */}
+          <div className="lg:col-span-7 rpg-panel-stone flex flex-col gap-3 animate-fade-in">
+            <div className="rpg-plaque -mt-7 self-start flex items-center gap-1.5">
+              <Users size={10} /> ANGGOTA GUILD ({profiles.length})
+            </div>
+            
+            <p className="text-[10px] text-slate-400 font-semibold mt-2">
+              Pilih salah satu anggota dari daftar untuk mengedit profil mereka.
+            </p>
+
+            <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto pr-1 no-scrollbar">
+              {profiles.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => handleSelectUser(p)}
+                  className={`flex items-center gap-3 p-2.5 bg-[#16110e] border rounded cursor-pointer transition-all ${
+                    selectedUserId === p.id
+                      ? 'border-amber-500 bg-amber-950/20'
+                      : 'border-[#5a3d28]/60 hover:border-amber-700/40'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-[11px] text-yellow-50 truncate">{p.name}</span>
+                      <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded ${
+                        p.role === 'Director' ? 'bg-yellow-900 text-yellow-400' :
+                        p.role === 'Manager'  ? 'bg-blue-900 text-blue-400' :
+                        'bg-slate-800 text-slate-400'
+                      }`}>{p.role}</span>
+                      <span className="text-[7.5px] bg-[#2b1f1a]/80 text-[#cca566] border border-[#5a3d28]/50 px-1 py-0.5 rounded font-bold font-mono">
+                        {p.sub_div_id}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-400 font-mono">
+                      <span>LV.{p.level}</span>
+                      <span>·</span>
+                      <span className="text-amber-400">🪙 {p.coins ?? 0} koin</span>
+                      <span>·</span>
+                      <span className="italic text-[8px] text-slate-500 truncate max-w-[150px]">"{p.current_status || 'Tidak ada status'}"</span>
+                    </div>
+                  </div>
+                  <div className="text-[9px] font-bold text-amber-500 flex-shrink-0">EDIT &gt;</div>
+                </div>
+              ))}
+              {profiles.length === 0 && (
+                <p className="text-center text-slate-500 text-xs py-8">Tidak ada anggota ditemukan.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Right Side: Edit Form (5 Spans) */}
+          <div className="lg:col-span-5 rpg-panel-stone flex flex-col gap-4">
+            <div className="rpg-plaque -mt-7 self-start flex items-center gap-1.5">
+              <Edit size={10} /> EDIT PROFIL ANGGOTA
+            </div>
+
+            {selectedUserId ? (
+              <form onSubmit={handleUpdateUser} className="flex flex-col gap-3.5 text-xs font-semibold mt-2">
+                {/* ID (Read only) */}
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">USER ID (READ-ONLY):</label>
+                  <input
+                    type="text"
+                    value={selectedUserId}
+                    disabled
+                    className="w-full bg-[#0d0a08] text-slate-500 p-2 rounded border border-[#5a3d28]/40 font-mono select-all cursor-not-allowed text-[10px]"
+                  />
+                </div>
+
+                {/* Nama */}
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">NAMA ANGGOTA:</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-semibold"
+                  />
+                </div>
+
+                {/* Role */}
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">ROLE:</label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as any)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold"
+                  >
+                    <option value="Staff">Staff</option>
+                    <option value="Manager">Manager</option>
+                    <option value="Director">Director</option>
+                  </select>
+                </div>
+
+                {/* Sub-divisi */}
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">SUB-DIVISI:</label>
+                  <select
+                    value={editSubDiv}
+                    onChange={(e) => setEditSubDiv(e.target.value as any)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold"
+                  >
+                    <option value="Academic">Academic</option>
+                    <option value="Pub">Pub</option>
+                    <option value="Project">Project</option>
+                    <option value="Comp">Comp</option>
+                    <option value="All">All / Guild-wide</option>
+                  </select>
+                </div>
+
+                {/* Level & Koin (Grid) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">LEVEL:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editLevel}
+                      onChange={(e) => setEditLevel(Number(e.target.value))}
+                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">KOIN:</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={9999}
+                      value={editCoins}
+                      onChange={(e) => setEditCoins(Number(e.target.value))}
+                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold text-center"
+                    />
+                  </div>
+                </div>
+
+                {userError && <p className="text-[10px] text-red-400 font-bold">{userError}</p>}
+                {userMsg && <p className="text-[10px] text-green-400 font-bold">{userMsg}</p>}
+
+                <button
+                  type="submit"
+                  disabled={userLoading}
+                  className="rpg-btn-game w-full py-3 mt-2 flex items-center justify-center gap-2 font-bold"
+                >
+                  <Edit size={12} />
+                  {userLoading ? 'MEMPERBARUI DATA...' : 'SIMPAN PERUBAHAN ANGGOTA'}
+                </button>
+              </form>
+            ) : (
+              <div className="text-center text-slate-500 py-16 text-xs font-bold border-2 border-dashed border-[#5a3d28]/35 rounded bg-[#16110e]/20">
+                Silakan pilih anggota di sebelah kiri terlebih dahulu untuk melakukan pengeditan.
+              </div>
             )}
           </div>
         </div>

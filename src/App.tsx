@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Profile } from './lib/supabase';
+import type { Profile, RoomConfig } from './lib/supabase';
 import { db } from './lib/supabase';
 import { House } from './components/House';
 import { GuildHall } from './components/GuildHall';
@@ -43,6 +43,9 @@ function App() {
   // Header Seats State
   const [lockedSeats, setLockedSeats] = useState<string[]>([]);
 
+  // Room Configs State
+  const [roomConfigs, setRoomConfigs] = useState<RoomConfig[]>([]);
+
   // Fetch all profiles from database
   const refreshProfiles = async () => {
     const data = await db.getProfiles();
@@ -77,6 +80,7 @@ function App() {
     // Fetch initial header seat locks and global ticker
     db.getLockedHeaderSeats().then(setLockedSeats);
     db.getGlobalTicker().then(setBroadcastTicker);
+    db.getRoomConfigs().then(setRoomConfigs);
 
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
@@ -93,6 +97,9 @@ function App() {
         refreshProfiles();
       } else if (msg.type === 'ticker_update') {
         setBroadcastTicker(msg.payload.text);
+      } else if (msg.type === 'room_config_update') {
+        const { roomId, updates } = msg.payload;
+        setRoomConfigs(prev => prev.map(c => c.room_id === roomId ? { ...c, ...updates } : c));
       } else if (msg.type === 'summon_all') {
         const { announcement } = msg.payload;
         setSummonNotification({ show: true, text: announcement });
@@ -197,6 +204,21 @@ function App() {
     if (updated) {
       setCurrentProfile(updated);
       refreshProfiles();
+    }
+  };
+
+  const handleUpdateRoomConfig = async (roomId: string, updates: Partial<RoomConfig>) => {
+    // 1. Optimistic Update
+    setRoomConfigs(prev => prev.map(c => c.room_id === roomId ? { ...c, ...updates } : c));
+    
+    // 2. Perform DB update
+    try {
+      await db.updateRoomConfig(roomId, updates);
+    } catch (err) {
+      console.error("Failed to update room config in DB:", err);
+      // Revert if error
+      const latest = await db.getRoomConfigs();
+      setRoomConfigs(latest);
     }
   };
 
@@ -612,6 +634,8 @@ function App() {
                     broadcastTicker={broadcastTicker}
                     onSetTicker={handleSetTicker}
                     onSeatClick={(seatId, isLeave) => handleSeatClick('guild_hall', seatId, currentProfile.id, isLeave)}
+                    roomConfig={roomConfigs.find(c => c.room_id === 'guild_hall')}
+                    onUpdateRoomConfig={handleUpdateRoomConfig}
                   />
                 )}
                  {activeTab === 'carriage' && (
@@ -621,6 +645,8 @@ function App() {
                     profiles={profiles}
                     onRefreshProfiles={refreshProfiles}
                     onSeatClick={(seatId, isLeave) => handleSeatClick('carriage', seatId, currentProfile.id, isLeave)}
+                    roomConfig={roomConfigs.find(c => c.room_id === 'carriage')}
+                    onUpdateRoomConfig={handleUpdateRoomConfig}
                   />
                 )}
                 {activeTab === 'boat' && (
@@ -630,6 +656,8 @@ function App() {
                     profiles={profiles}
                     onRefreshProfiles={refreshProfiles}
                     onSeatClick={(seatId, isLeave) => handleSeatClick('boat', seatId, currentProfile.id, isLeave)}
+                    roomConfig={roomConfigs.find(c => c.room_id === 'boat')}
+                    onUpdateRoomConfig={handleUpdateRoomConfig}
                   />
                 )}
                 {activeTab === 'tavern' && (
@@ -639,6 +667,8 @@ function App() {
                     onRefreshProfiles={refreshProfiles}
                     onUpdateProfile={handleUpdateProfile}
                     onSeatClick={(seatId, isLeave) => handleSeatClick('tavern', seatId, currentProfile.id, isLeave)}
+                    roomConfig={roomConfigs.find(c => c.room_id === 'tavern')}
+                    onUpdateRoomConfig={handleUpdateRoomConfig}
                   />
                 )}
                 {activeTab === 'library' && (
