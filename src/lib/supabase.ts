@@ -1528,6 +1528,54 @@ export const db = {
     return true;
   },
 
+  async getRoundTableMusic(): Promise<{ url: string; status: 'playing' | 'stopped'; startedAt?: number } | null> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', 'round_table_music')
+          .maybeSingle();
+        if (error) throw error;
+        if (data && data.notes) {
+          return data.notes as any;
+        }
+      } catch (err) {
+        console.warn('Failed to load Round Table music config from Supabase:', err);
+      }
+    }
+    try {
+      const saved = localStorage.getItem('rpg_round_table_music');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveRoundTableMusic(state: { url: string; status: 'playing' | 'stopped'; startedAt?: number }): Promise<boolean> {
+    const finalState = {
+      ...state,
+      startedAt: state.startedAt || (state.status === 'playing' ? Date.now() : 0)
+    };
+    localStorage.setItem('rpg_round_table_music', JSON.stringify(finalState));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'round_table_music',
+            notes: finalState as any,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('Failed to save Round Table music state to Supabase:', err);
+        return false;
+      }
+    }
+    this.broadcast('round_table_music_sync', finalState);
+    return true;
+  },
+
   async getGlobalTicker(): Promise<string> {
     if (!isMock && supabase) {
       try {

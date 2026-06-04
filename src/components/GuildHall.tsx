@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info } from 'lucide-react';
+import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info, Music } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
 
@@ -24,6 +24,9 @@ interface GuildHallProps {
   onSeatClick?: (seatId: string, isLeave: boolean) => void;
   roomConfig?: RoomConfig;
   onUpdateRoomConfig?: (roomId: string, updates: Partial<RoomConfig>) => void;
+  globalMusicUrl: string;
+  globalMusicStatus: 'playing' | 'stopped';
+  onUpdateMusic: (url: string, status: 'playing' | 'stopped') => void;
 }
 
 export const GuildHall: React.FC<GuildHallProps> = ({
@@ -35,6 +38,9 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   onSeatClick,
   roomConfig,
   onUpdateRoomConfig,
+  globalMusicUrl,
+  globalMusicStatus,
+  onUpdateMusic,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('guild_hall', profiles), [profiles]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -56,6 +62,14 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const [localDiscordUrl, setLocalDiscordUrl] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSavedFeedback, setShowSavedFeedback] = useState(false);
+
+  // Music Player Config Popup State
+  const [showMusicModal, setShowMusicModal] = useState(false);
+  const [inputMusicUrl, setInputMusicUrl] = useState(globalMusicUrl);
+
+  useEffect(() => {
+    setInputMusicUrl(globalMusicUrl);
+  }, [globalMusicUrl]);
 
   useEffect(() => {
     if (roomConfig?.discord_url !== undefined && !isInputFocused) {
@@ -442,6 +456,32 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               <span>{profiles.filter(p => p.current_seat_id?.startsWith('guild_hall_')).length} / 20 Duduk</span>
             </div>
 
+            {/* CHANDELIER (Music Player trigger in center of table) */}
+            <div
+              onClick={() => {
+                if (currentProfile.role !== 'Staff') {
+                  playClick();
+                  setShowMusicModal(true);
+                } else {
+                  playSelect();
+                  alert("Hanya Direktur & Manajer yang dapat mengatur musik rapat.");
+                }
+              }}
+              style={{ left: '50.5%', top: '56.5%', width: '12%', height: '15%', transform: 'translate(-50%, -50%)' }}
+              className="absolute cursor-pointer border-2 border-transparent hover:border-yellow-400 hover:bg-yellow-400/10 hover:shadow-[0_0_20px_rgba(253,224,71,0.5)] transition-all rounded-full z-20 group flex items-center justify-center animate-[pulse_3.5s_infinite]"
+              title="Setel Musik Rapat (Chandelier)"
+            >
+              <div className="flex flex-col items-center justify-center">
+                {/* Glowing chandelier orb */}
+                <div className="w-8 h-8 rounded-full bg-yellow-500/30 border-2 border-yellow-400 flex items-center justify-center shadow-[0_0_15px_rgba(234,179,8,0.6)] group-hover:scale-105 transition-transform">
+                  <Music className="text-yellow-400 animate-pulse" size={14} />
+                </div>
+                <span className="text-[5.5px] text-yellow-300 font-extrabold rpg-font-retro uppercase tracking-tighter mt-1 bg-slate-950/90 px-1 py-0.2 rounded border border-yellow-600/40 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                  SETEL MUSIK (CHANDELIER)
+                </span>
+              </div>
+            </div>
+
             {/* SEATS AND USERS RENDERING */}
             {seats.map((seat) => {
               const occupant = profiles.find(p => p.id === seat.user_id);
@@ -709,6 +749,82 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               </form>
             )}
             
+          </div>
+        </div>
+      )}
+      {/* MUSIC PLAYER CONFIG MODAL */}
+      {showMusicModal && currentProfile.role !== 'Staff' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4 animate-fade-in">
+          <div className="rpg-panel-stone max-w-sm w-full p-5 border-4 border-[#cca566]" style={{ animation: 'fadeIn 0.15s ease-out' }}>
+            
+            <div className="flex justify-between items-center border-b border-stone-750 pb-2 mb-4">
+              <h3 className="font-bold text-amber-500 text-xs rpg-font-retro flex items-center gap-1.5">
+                <Music size={14} className="text-yellow-400 animate-pulse" /> SETEL MUSIK RAPAT
+              </h3>
+              <button onClick={() => { playClick(); setShowMusicModal(false); }} className="text-slate-400 hover:text-white p-1"><X size={16} /></button>
+            </div>
+
+            <p className="text-[9.5px] text-slate-400 leading-normal mb-4 font-semibold">
+              Masukkan link YouTube untuk memutar audio musik rapat secara global untuk seluruh anggota di dalam guild.
+            </p>
+
+            <div className="space-y-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[8.5px] text-[#cca566] font-bold uppercase tracking-wider text-left">Link YouTube:</label>
+                <input
+                  type="text"
+                  value={inputMusicUrl}
+                  onChange={(e) => setInputMusicUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="bg-black/80 text-yellow-100 border border-amber-600/40 rounded px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-amber-500 placeholder:text-stone-600"
+                />
+              </div>
+
+              {/* Status display */}
+              <div className="bg-slate-900/60 border border-stone-850 rounded p-2 text-stone-300 text-left">
+                <span className="text-[8px] text-slate-500 block uppercase tracking-wider leading-none">Status Musik Saat Ini:</span>
+                <div className="flex items-center gap-1.5 mt-1 font-mono">
+                  <span className={`w-2 h-2 rounded-full ${globalMusicStatus === 'playing' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                  <span className="text-[10px] font-bold">
+                    {globalMusicStatus === 'playing' ? 'Sedang Memutar 🟢' : 'Berhenti 🔴'}
+                  </span>
+                </div>
+                {globalMusicUrl && (
+                  <span className="text-[7.5px] text-slate-400 truncate block mt-1.5">
+                    Link: {globalMusicUrl}
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2.5 mt-4">
+                <button
+                  onClick={() => {
+                    playClick();
+                    if (inputMusicUrl.trim()) {
+                      onUpdateMusic(inputMusicUrl.trim(), 'playing');
+                    } else {
+                      alert("Silakan masukkan link YouTube terlebih dahulu.");
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-stone-950 font-black text-xs rounded transition-all active:scale-95 shadow-md shadow-amber-900/30 cursor-pointer text-center font-mono"
+                >
+                  PLAY (SETEL)
+                </button>
+                
+                <button
+                  onClick={() => {
+                    playClick();
+                    onUpdateMusic(globalMusicUrl, 'stopped');
+                  }}
+                  disabled={globalMusicStatus !== 'playing'}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-black text-xs rounded transition-all active:scale-95 shadow-md shadow-red-900/30 cursor-pointer text-center font-mono"
+                >
+                  STOP
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

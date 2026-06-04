@@ -12,8 +12,15 @@ import { AssetManager } from './components/AssetManager';
 import { Inventory } from './components/Inventory';
 import { SpriteRenderer } from './components/SpriteRenderer';
 import { Wilderness } from './components/Wilderness';
-import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords } from 'lucide-react';
+import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords, Volume2, VolumeX } from 'lucide-react';
 import { playClick, playSelect } from './lib/audio';
+
+const getYoutubeVideoId = (url?: string): string | null => {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
 
 function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -46,6 +53,14 @@ function App() {
   // Room Configs State
   const [roomConfigs, setRoomConfigs] = useState<RoomConfig[]>([]);
 
+  // Global Round Table Music State
+  const [globalMusicUrl, setGlobalMusicUrl] = useState<string>('');
+  const [globalMusicStatus, setGlobalMusicStatus] = useState<'playing' | 'stopped'>('stopped');
+  const [globalMusicStartedAt, setGlobalMusicStartedAt] = useState<number>(0);
+  const [isMuted, setIsMuted] = useState<boolean>(false); // Default to unmuted as requested by user
+  const youtubeIframeRef = React.useRef<HTMLIFrameElement | null>(null);
+  const [stableMusicParams, setStableMusicParams] = useState<{ url: string; start: number; mute: boolean } | null>(null);
+
   // Fetch all profiles from database
   const refreshProfiles = async () => {
     const data = await db.getProfiles();
@@ -77,10 +92,17 @@ function App() {
     // Pre-populate the asset cache so SpriteRenderer can read synchronously
     db.refreshAssetsCache();
 
-    // Fetch initial header seat locks and global ticker
+    // Fetch initial header seat locks, global ticker, and music state
     db.getLockedHeaderSeats().then(setLockedSeats);
     db.getGlobalTicker().then(setBroadcastTicker);
     db.getRoomConfigs().then(setRoomConfigs);
+    db.getRoundTableMusic().then(state => {
+      if (state) {
+        setGlobalMusicUrl(state.url || '');
+        setGlobalMusicStatus(state.status || 'stopped');
+        setGlobalMusicStartedAt(state.startedAt || 0);
+      }
+    });
 
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
@@ -112,6 +134,11 @@ function App() {
         setGlobalTimerRunning(running);
       } else if (msg.type === 'header_seats_lock_update') {
         setLockedSeats(msg.payload.lockedSeats);
+      } else if (msg.type === 'round_table_music_sync') {
+        const { url, status, startedAt } = msg.payload;
+        setGlobalMusicUrl(url || '');
+        setGlobalMusicStatus(status || 'stopped');
+        setGlobalMusicStartedAt(startedAt || 0);
       }
     });
 
@@ -120,6 +147,33 @@ function App() {
       clearInterval(globalTimerIntervalRef.current);
     };
   }, [currentProfile?.id]);
+
+  // Synchronize stable music parameters only when the URL, status, or start timestamp changes
+  useEffect(() => {
+    if (globalMusicStatus === 'playing' && globalMusicUrl) {
+      const start = globalMusicStartedAt > 0
+        ? Math.max(0, Math.floor((Date.now() - globalMusicStartedAt) / 1000))
+        : 0;
+      setStableMusicParams({
+        url: globalMusicUrl,
+        start,
+        mute: isMuted
+      });
+    } else {
+      setStableMusicParams(null);
+    }
+  }, [globalMusicUrl, globalMusicStatus, globalMusicStartedAt]);
+
+  // Synchronize mute/unmute state with iframe via postMessage to avoid restarting the video
+  useEffect(() => {
+    if (youtubeIframeRef.current && youtubeIframeRef.current.contentWindow) {
+      const command = isMuted ? 'mute' : 'unMute';
+      youtubeIframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: command, args: [] }),
+        '*'
+      );
+    }
+  }, [isMuted]);
 
   // Global Timer Countdown Effect
   React.useEffect(() => {
@@ -426,6 +480,34 @@ function App() {
               )}
             </div>
 
+            {/* Global Music Control Button (Volume/Mute toggle) */}
+            {globalMusicUrl && globalMusicStatus === 'playing' && (
+              <button
+                onClick={() => {
+                  playClick();
+                  setIsMuted(!isMuted);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 shadow-md cursor-pointer transition-all active:scale-95 ${
+                  isMuted
+                    ? 'border-red-950 bg-red-950/40 text-red-400 border-red-900 hover:bg-red-900/20'
+                    : 'border-green-600 bg-green-950/30 text-green-400 hover:bg-green-600/20 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                }`}
+                title={isMuted ? "Unmute Musik Rapat" : "Mute Musik Rapat"}
+              >
+                {isMuted ? (
+                  <>
+                    <VolumeX size={14} />
+                    <span className="text-[7.5px] font-bold uppercase tracking-wider font-mono">MUTED</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 size={14} className="animate-bounce" />
+                    <span className="text-[7.5px] font-bold uppercase tracking-wider font-mono animate-pulse">PLAYING</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Profile HUD Card */}
             <div className="rpg-hud-card">
               {/* Portrait Frame */}
@@ -636,6 +718,9 @@ function App() {
                     onSeatClick={(seatId, isLeave) => handleSeatClick('guild_hall', seatId, currentProfile.id, isLeave)}
                     roomConfig={roomConfigs.find(c => c.room_id === 'guild_hall')}
                     onUpdateRoomConfig={handleUpdateRoomConfig}
+                    globalMusicUrl={globalMusicUrl}
+                    globalMusicStatus={globalMusicStatus}
+                    onUpdateMusic={(url, status) => db.saveRoundTableMusic({ url, status })}
                   />
                 )}
                  {activeTab === 'carriage' && (
@@ -817,6 +902,22 @@ function App() {
           </div>
         </div>
       )}
+      {/* Hidden YouTube Iframe Player for Global Music */}
+      {(() => {
+        if (!stableMusicParams) return null;
+        const videoId = getYoutubeVideoId(stableMusicParams.url);
+        if (!videoId) return null;
+
+        return (
+          <iframe
+            ref={youtubeIframeRef}
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&controls=0&start=${stableMusicParams.start}&mute=${stableMusicParams.mute ? 1 : 0}`}
+            style={{ position: 'absolute', width: 0, height: 0, border: 0, opacity: 0, pointerEvents: 'none' }}
+            allow="autoplay"
+            title="Global Round Table Music Player"
+          />
+        );
+      })()}
 
     </div>
   );
