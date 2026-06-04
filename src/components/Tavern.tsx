@@ -1,12 +1,20 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import type { Profile, Seat, RpgAsset, Rarity, TavernComment, RoomConfig } from '../lib/supabase';
-import { db } from '../lib/supabase';
+import { db, isMock, supabase } from '../lib/supabase';
 import { RARITY_CONFIG } from './AssetManager';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Coins, Sparkles, X, Gamepad2, Package, MessageSquare, Send } from 'lucide-react';
+import { Coins, Sparkles, X, Gamepad2, Package, MessageSquare, Send, Brush, Eraser, Trash2, Trophy, Settings, Play, Check, Clock } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
+
+const ensureAbsoluteUrl = (url?: string): string => {
+  if (!url) return '#';
+  const trimmed = url.trim();
+  if (/^[a-z]+:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+};
 
 interface TavernProps {
   currentProfile: Profile;
@@ -50,6 +58,8 @@ const INITIAL_CHESS_BOARD = [
   'wR', 'wN', 'wB', 'wQ', 'wK', 'wB', 'wN', 'wR'
 ];
 
+type PackType = 'individual' | 'education' | 'ieee';
+
 export const Tavern: React.FC<TavernProps> = ({
   currentProfile,
   profiles,
@@ -67,7 +77,6 @@ export const Tavern: React.FC<TavernProps> = ({
   const [showGame, setShowGame] = useState(false);
 
   // Gacha state
-  type PackType = 'individual' | 'education' | 'ieee';
   const [selectedPack, setSelectedPack] = useState<PackType>('individual');
   const [pullResult, setPullResult] = useState<{ asset: RpgAsset; rarity: Rarity; isDuplicate: boolean } | null>(null);
   const [gachaError, setGachaError] = useState('');
@@ -80,10 +89,10 @@ export const Tavern: React.FC<TavernProps> = ({
     setLocalCoins(currentProfile.coins || 0);
   }, [currentProfile.coins]);
 
-  const PACK_INFO: Record<PackType, { label: string; cost: number; desc: string; emoji: string; probs: string }> = {
-    individual: { label: 'Individual Pack', cost: 10, desc: 'Peluang Common besar, Legendary kecil.', emoji: '📦', probs: '60% C · 25% UC · 10% R · 4% E · 1% L' },
-    education:  { label: 'Education Pack', cost: 25, desc: 'Peluang seimbang, Rare cukup sering.',   emoji: '🎓', probs: '45% C · 30% UC · 15% R · 7% E · 3% L' },
-    ieee:       { label: 'IEEE Pack',       cost: 50, desc: 'Rare–Legendary jauh lebih sering!',     emoji: '⚡', probs: '15% C · 20% UC · 35% R · 20% E · 10% L' },
+  const PACK_INFO: Record<PackType, { label: string; cost: number; desc: string; probs: string }> = {
+    individual: { label: 'Individual Pack', cost: 10, desc: 'Peluang Common besar, Legendary kecil.', probs: '60% C · 25% UC · 10% R · 4% E · 1% L' },
+    education:  { label: 'Education Pack', cost: 25, desc: 'Peluang seimbang, Rare cukup sering.',   probs: '45% C · 30% UC · 15% R · 7% E · 3% L' },
+    ieee:       { label: 'IEEE Pack',       cost: 50, desc: 'Rare–Legendary jauh lebih sering!',     probs: '15% C · 20% UC · 35% R · 20% E · 10% L' },
   };
 
   const [spectatorIds, setSpectatorIds] = useState<string[]>([]);
@@ -96,8 +105,11 @@ export const Tavern: React.FC<TavernProps> = ({
 
   // Local Discord URL State
   const [localDiscordUrl, setLocalDiscordUrl] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [showSavedFeedback, setShowSavedFeedback] = useState(false);
+
   useEffect(() => {
-    if (roomConfig?.discord_url !== undefined) {
+    if (roomConfig?.discord_url !== undefined && !isInputFocused) {
       setLocalDiscordUrl(roomConfig.discord_url);
     }
   }, [roomConfig?.discord_url]);
@@ -162,7 +174,7 @@ export const Tavern: React.FC<TavernProps> = ({
   });
 
   // Active Game Tab State
-  const [activeGameTab, setActiveGameTab] = useState<'ttt' | 'chess'>('ttt');
+  const [activeGameTab, setActiveGameTab] = useState<'ttt' | 'chess' | 'gartic'>('ttt');
 
   // Chess Game State
   const [chessState, setChessState] = useState<ChessState>({
@@ -177,6 +189,597 @@ export const Tavern: React.FC<TavernProps> = ({
   });
   const [selectedSquare, setSelectedSquare] = useState<number | null>(null);
   const [selectedCaptured, setSelectedCaptured] = useState<{ index: number; code: string } | null>(null);
+
+  // Gartic Game State
+  const [garticState, setGarticState] = useState<{
+    status: 'idle' | 'active' | 'ended';
+    round: number;
+    totalRounds: number;
+    timer: number;
+    totalTimer: number;
+    drawerId: string | null;
+    drawerName: string | null;
+    wordHash: string | null;
+    wordLength: number;
+    currentWord: string;
+    leaderboard: { [profileId: string]: { name: string; score: number; nameColor?: string } };
+    correctGuessers: string[];
+    baseReward: number;
+    words: { id: string; text: string; enabled: boolean }[];
+  }>({
+    status: 'idle',
+    round: 1,
+    totalRounds: 3,
+    timer: 60,
+    totalTimer: 60,
+    drawerId: null,
+    drawerName: null,
+    wordHash: null,
+    wordLength: 0,
+    currentWord: '',
+    leaderboard: {},
+    correctGuessers: [],
+    baseReward: 100,
+    words: [
+      { id: '1', text: 'naga', enabled: true },
+      { id: '2', text: 'pedang', enabled: true },
+      { id: '3', text: 'mahkota', enabled: true },
+      { id: '4', text: 'kastil', enabled: true },
+      { id: '5', text: 'ramuan', enabled: true },
+      { id: '6', text: 'penyihir', enabled: true },
+      { id: '7', text: 'koin', enabled: true },
+      { id: '8', text: 'gerbong', enabled: true },
+      { id: '9', text: 'perahu', enabled: true },
+      { id: '10', text: 'taverna', enabled: true }
+    ]
+  });
+
+  const [garticChat, setGarticChat] = useState<{ id: string; sender: string; text: string; system?: boolean; correct?: boolean }[]>([]);
+  const [garticChatInput, setGarticChatInput] = useState('');
+  const [garticRevealedWord, setGarticRevealedWord] = useState('');
+  const [garticDrawingColor, setGarticDrawingColor] = useState('#fafaf9');
+  const [garticDrawingWidth, setGarticDrawingWidth] = useState(3);
+  const [garticTool, setGarticTool] = useState<'pen' | 'eraser'>('pen');
+  const [presencePlayers, setPresencePlayers] = useState<{ id: string; name: string }[]>([]);
+  const [garticShowSettings, setGarticShowSettings] = useState(false);
+  const [newWordInput, setNewWordInput] = useState('');
+
+  const garticCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isGarticDrawingRef = useRef(false);
+  const lastGarticPosRef = useRef<{ x: number; y: number } | null>(null);
+  const garticDrawingBufferRef = useRef<{ x: number; y: number }[]>([]);
+  const garticTimerIntervalRef = useRef<any>(null);
+  const garticStateRef = useRef(garticState);
+  const lastBroadcastTimeRef = useRef(0);
+
+  useEffect(() => {
+    garticStateRef.current = garticState;
+  }, [garticState]);
+
+  // Load Gartic config from db or localStorage
+  useEffect(() => {
+    const loadGarticConfig = async () => {
+      const defaultWords = [
+        { id: '1', text: 'naga', enabled: true },
+        { id: '2', text: 'pedang', enabled: true },
+        { id: '3', text: 'mahkota', enabled: true },
+        { id: '4', text: 'kastil', enabled: true },
+        { id: '5', text: 'ramuan', enabled: true },
+        { id: '6', text: 'penyihir', enabled: true },
+        { id: '7', text: 'koin', enabled: true },
+        { id: '8', text: 'gerbong', enabled: true },
+        { id: '9', text: 'perahu', enabled: true },
+        { id: '10', text: 'taverna', enabled: true }
+      ];
+      if (!isMock && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('whiteboard_drawings')
+            .select('notes')
+            .eq('room_id', 'gartic_config')
+            .maybeSingle();
+          if (error) throw error;
+          if (data && data.notes) {
+            const config = typeof data.notes === 'string' ? JSON.parse(data.notes) : data.notes;
+            setGarticState(prev => ({
+              ...prev,
+              totalRounds: config.totalRounds ?? prev.totalRounds,
+              totalTimer: config.totalTimer ?? prev.totalTimer,
+              baseReward: config.baseReward ?? prev.baseReward,
+              words: config.words ?? defaultWords
+            }));
+          }
+        } catch (err) {
+          console.warn('Failed to load Gartic config from database:', err);
+        }
+      } else {
+        try {
+          const saved = localStorage.getItem('rpg_gartic_config');
+          if (saved) {
+            const config = JSON.parse(saved);
+            setGarticState(prev => ({
+              ...prev,
+              totalRounds: config.totalRounds ?? prev.totalRounds,
+              totalTimer: config.totalTimer ?? prev.totalTimer,
+              baseReward: config.baseReward ?? prev.baseReward,
+              words: config.words ?? defaultWords
+            }));
+          }
+        } catch {}
+      }
+    };
+    loadGarticConfig();
+  }, []);
+
+  const saveGarticConfig = async (updatedState: typeof garticState) => {
+    const config = {
+      totalRounds: updatedState.totalRounds,
+      totalTimer: updatedState.totalTimer,
+      baseReward: updatedState.baseReward,
+      words: updatedState.words
+    };
+    localStorage.setItem('rpg_gartic_config', JSON.stringify(config));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'gartic_config',
+            notes: config,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('Failed to save Gartic config to Supabase:', err);
+      }
+    }
+    db.broadcast('gartic_config_sync', config);
+  };
+
+  // Real-time Gartic Presence
+  useEffect(() => {
+    if (activeGameTab !== 'gartic') {
+      setPresencePlayers([]);
+      return;
+    }
+
+    if (isMock || !supabase) {
+      const activeProfiles = profiles.filter(p => {
+        const diff = Date.now() - new Date(p.last_seen).getTime();
+        return diff < 30000;
+      }).map(p => ({ id: p.id, name: p.name }));
+      setPresencePlayers(activeProfiles);
+      return;
+    }
+
+    const channel = supabase.channel('rpg_gartic_presence', {
+      config: {
+        presence: {
+          key: currentProfile.id
+        }
+      }
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const players: { id: string; name: string }[] = [];
+        Object.keys(state).forEach(key => {
+          const userPresences = state[key] as any;
+          if (userPresences && userPresences[0]) {
+            players.push({ id: key, name: userPresences[0].name });
+          }
+        });
+        setPresencePlayers(players);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ name: currentProfile.name });
+        }
+      });
+
+  }, [activeGameTab, profiles, currentProfile.id, currentProfile.name]);
+
+  // Auto-vacate TTT and Chess player slots and spectator status if player claims another seat
+  useEffect(() => {
+    const isPlayerX = currentProfile.id === tttState.playerXId;
+    const isPlayerO = currentProfile.id === tttState.playerOId;
+    if ((isPlayerX || isPlayerO) && currentProfile.current_seat_id !== 'tavern_seat_ttt') {
+      const newState = { ...tttState };
+      if (isPlayerX) {
+        newState.playerXId = null;
+        newState.playerXName = null;
+      }
+      if (isPlayerO) {
+        newState.playerOId = null;
+        newState.playerOName = null;
+      }
+      if (!newState.playerXId && !newState.playerOId) {
+        newState.board = Array(9).fill(null);
+        newState.winner = null;
+        newState.turn = 'X';
+      }
+      setTttState(newState);
+      db.saveTicTacToeState(newState);
+      db.broadcast('tictactoe_sync', { tttState: newState, spectatorIds });
+    }
+  }, [currentProfile.current_seat_id, tttState.playerXId, tttState.playerOId]);
+
+  useEffect(() => {
+    const isWhite = currentProfile.id === chessState.playerWhiteId;
+    const isBlack = currentProfile.id === chessState.playerBlackId;
+    if ((isWhite || isBlack) && currentProfile.current_seat_id !== 'tavern_seat_chess') {
+      const newState = { ...chessState };
+      if (isWhite) {
+        newState.playerWhiteId = null;
+        newState.playerWhiteName = null;
+      }
+      if (isBlack) {
+        newState.playerBlackId = null;
+        newState.playerBlackName = null;
+      }
+      if (!newState.playerWhiteId && !newState.playerBlackId) {
+        newState.board = [...INITIAL_CHESS_BOARD];
+        newState.winner = null;
+        newState.turn = 'white';
+        newState.capturedPieces = [];
+      }
+      setChessState(newState);
+      db.saveChessState(newState);
+      db.broadcast('chess_sync', { chessState: newState });
+    }
+  }, [currentProfile.current_seat_id, chessState.playerWhiteId, chessState.playerBlackId]);
+
+  useEffect(() => {
+    const isAtTtt = currentProfile.current_seat_id === 'tavern_seat_ttt';
+    const isAtChess = currentProfile.current_seat_id === 'tavern_seat_chess';
+    if (!isAtTtt && !isAtChess && spectatorIds.includes(currentProfile.id)) {
+      setSpectatorIds(prev => {
+        const updated = prev.filter(id => id !== currentProfile.id);
+        db.broadcast('tictactoe_spectator_leave', { userId: currentProfile.id });
+        return updated;
+      });
+    }
+  }, [currentProfile.current_seat_id, spectatorIds]);
+
+
+  // Game Loop autoritatif (hanya berjalan di klien Director)
+  useEffect(() => {
+    if (currentProfile.role !== 'Director' || garticState.status !== 'active') {
+      return;
+    }
+
+    garticTimerIntervalRef.current = setInterval(() => {
+      const currentState = garticStateRef.current;
+      if (currentState.timer <= 1) {
+        clearInterval(garticTimerIntervalRef.current);
+        setGarticState(prev => ({ ...prev, timer: 0 }));
+        handleGarticRoundTimeout(currentState);
+      } else {
+        const nextTimer = currentState.timer - 1;
+        setGarticState(prev => ({ ...prev, timer: nextTimer }));
+        db.broadcast('gartic_timer_tick', { timer: nextTimer });
+      }
+    }, 1000);
+
+    return () => clearInterval(garticTimerIntervalRef.current);
+  }, [garticState.status, garticState.round]);
+
+  const getWordHash = (w: string) => {
+    let hash = 0;
+    const clean = w.toLowerCase().trim();
+    for (let i = 0; i < clean.length; i++) {
+      hash = (hash << 5) - hash + clean.charCodeAt(i);
+      hash |= 0;
+    }
+    return hash.toString();
+  };
+
+  const handleGarticRoundTimeout = async (currentState: typeof garticState) => {
+    clearInterval(garticTimerIntervalRef.current);
+    db.broadcast('gartic_end_round', { word: currentState.currentWord, round: currentState.round });
+
+    setTimeout(() => {
+      const nextRound = currentState.round + 1;
+      if (nextRound <= currentState.totalRounds) {
+        const activePlayers = presencePlayers.length > 0 ? presencePlayers : [{ id: currentProfile.id, name: currentProfile.name }];
+        const sortedPlayers = [...activePlayers].sort((a, b) => a.id.localeCompare(b.id));
+        const nextPlayer = sortedPlayers[(nextRound - 1) % sortedPlayers.length];
+
+        const enabledWords = currentState.words.filter(w => w.enabled);
+        const randomWordObj = enabledWords.length > 0 
+          ? enabledWords[Math.floor(Math.random() * enabledWords.length)]
+          : { text: 'mahkota' };
+        const nextWord = randomWordObj.text;
+
+        db.broadcast('gartic_start_round', {
+          round: nextRound,
+          drawerId: nextPlayer.id,
+          drawerName: nextPlayer.name,
+          wordHash: getWordHash(nextWord),
+          wordLength: nextWord.length,
+          totalRounds: currentState.totalRounds,
+          duration: currentState.totalTimer,
+          baseReward: currentState.baseReward
+        });
+
+        db.broadcast('gartic_drawer_word', {
+          drawerId: nextPlayer.id,
+          word: nextWord
+        });
+      } else {
+        const gameOverTime = Date.now();
+        db.broadcast('gartic_game_over', { timestamp: gameOverTime });
+        setGarticState(prev => ({ ...prev, status: 'ended' }));
+        awardGarticCoins(currentState.leaderboard);
+      }
+    }, 5000);
+  };
+
+  const awardGarticCoins = async (leaderboard: typeof garticState.leaderboard) => {
+    const sorted = Object.entries(leaderboard)
+      .map(([id, val]) => ({ id, ...val }))
+      .sort((a, b) => b.score - a.score);
+
+    const base = garticStateRef.current.baseReward;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const player = sorted[i];
+      let multiplier = 0;
+      if (i === 0) multiplier = 3;
+      else if (i === 1) multiplier = 2.5;
+      else if (i === 2) multiplier = 2;
+      else if (i === 3) multiplier = 1.75;
+      else if (i === 4) multiplier = 1.5;
+      else if (i >= 5 && i <= 9) multiplier = 1;
+
+      if (multiplier > 0) {
+        const rewardCoins = Math.round(base * multiplier);
+        const playerProfile = profiles.find(p => p.id === player.id);
+        if (playerProfile) {
+          const newCoins = (playerProfile.coins || 0) + rewardCoins;
+          await db.updateProfile(player.id, { coins: newCoins });
+          db.broadcast('gartic_guess', {
+            sender: 'Sistem',
+            text: `[SISTEM] ${player.name} peringkat ${i+1} mendapatkan ${rewardCoins} koin!`,
+            system: true,
+            msgId: `reward_${player.id}_${i}_${Date.now()}`
+          });
+        }
+      }
+    }
+    onRefreshProfiles();
+  };
+
+  const startGarticGame = () => {
+    if (garticState.status === 'active') return;
+    const activePlayers = presencePlayers.length > 0 ? presencePlayers : [{ id: currentProfile.id, name: currentProfile.name }];
+    const sortedPlayers = [...activePlayers].sort((a, b) => a.id.localeCompare(b.id));
+    const nextPlayer = sortedPlayers[0];
+
+    const enabledWords = garticState.words.filter(w => w.enabled);
+    const randomWordObj = enabledWords.length > 0 
+      ? enabledWords[Math.floor(Math.random() * enabledWords.length)]
+      : { text: 'mahkota' };
+    const selectedWord = randomWordObj.text;
+
+    setGarticChat([]);
+    
+    // Reset Leaderboard
+    const resetLeader: typeof garticState.leaderboard = {};
+    activePlayers.forEach(p => {
+      resetLeader[p.id] = { name: p.name, score: 0 };
+    });
+
+    db.broadcast('gartic_start_round', {
+      round: 1,
+      drawerId: nextPlayer.id,
+      drawerName: nextPlayer.name,
+      wordHash: getWordHash(selectedWord),
+      wordLength: selectedWord.length,
+      totalRounds: garticState.totalRounds,
+      duration: garticState.totalTimer,
+      baseReward: garticState.baseReward,
+      leaderboard: resetLeader
+    });
+
+    db.broadcast('gartic_drawer_word', {
+      drawerId: nextPlayer.id,
+      word: selectedWord
+    });
+  };
+
+  const resetGarticGame = () => {
+    if (garticState.status === 'active') return;
+    db.broadcast('gartic_reset', {});
+  };
+
+  const flushDrawingBuffer = () => {
+    const buffer = garticDrawingBufferRef.current;
+    if (buffer.length > 0) {
+      db.broadcast('gartic_draw', {
+        points: buffer,
+        color: garticDrawingColor,
+        width: garticDrawingWidth,
+        tool: garticTool,
+        isEnd: false,
+        isClear: false
+      });
+      garticDrawingBufferRef.current = [buffer[buffer.length - 1]];
+    }
+  };
+
+  const handleDrawMove = (x: number, y: number) => {
+    if (!isGarticDrawingRef.current) return;
+    garticDrawingBufferRef.current.push({ x, y });
+
+    const now = Date.now();
+    if (now - lastBroadcastTimeRef.current > 50) {
+      flushDrawingBuffer();
+      lastBroadcastTimeRef.current = now;
+    }
+  };
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (garticState.drawerId !== currentProfile.id || garticState.status !== 'active') return;
+    const canvas = garticCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+
+    isGarticDrawingRef.current = true;
+    lastGarticPosRef.current = { x, y };
+    garticDrawingBufferRef.current = [{ x, y }];
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      if (garticTool === 'eraser') {
+        ctx.globalCompositeOperation = 'destination-out';
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = garticDrawingColor;
+      }
+      ctx.lineWidth = garticDrawingWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isGarticDrawingRef.current || garticState.drawerId !== currentProfile.id) return;
+    const canvas = garticCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(lastGarticPosRef.current!.x, lastGarticPosRef.current!.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    lastGarticPosRef.current = { x, y };
+    handleDrawMove(x, y);
+  };
+
+  const handleCanvasMouseUpOrLeave = () => {
+    if (!isGarticDrawingRef.current) return;
+    isGarticDrawingRef.current = false;
+    flushDrawingBuffer();
+    lastGarticPosRef.current = null;
+    db.broadcast('gartic_draw', { points: [], color: '', width: 0, tool: garticTool, isEnd: true, isClear: false });
+  };
+
+  const getTouchPos = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = garticCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    return {
+      x: ((touch.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((touch.clientY - rect.top) / rect.height) * canvas.height
+    };
+  };
+
+  const handleCanvasTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (garticState.drawerId !== currentProfile.id || garticState.status !== 'active') return;
+    e.preventDefault();
+    const { x, y } = getTouchPos(e);
+    isGarticDrawingRef.current = true;
+    lastGarticPosRef.current = { x, y };
+    garticDrawingBufferRef.current = [{ x, y }];
+
+    const canvas = garticCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx) {
+      if (garticTool === 'eraser') {
+        ctx.globalCompositeOperation = 'destination-out';
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = garticDrawingColor;
+      }
+      ctx.lineWidth = garticDrawingWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+  };
+
+  const handleCanvasTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isGarticDrawingRef.current || garticState.drawerId !== currentProfile.id) return;
+    e.preventDefault();
+    const { x, y } = getTouchPos(e);
+
+    const canvas = garticCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(lastGarticPosRef.current!.x, lastGarticPosRef.current!.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    lastGarticPosRef.current = { x, y };
+    handleDrawMove(x, y);
+  };
+
+  const handleSendGarticGuess = (e: React.FormEvent) => {
+    e.preventDefault();
+    const rawInput = garticChatInput.trim();
+    if (!rawInput || garticState.status !== 'active') return;
+
+    const text = rawInput.toLowerCase();
+    setGarticChatInput('');
+
+    if (getWordHash(text) === garticState.wordHash) {
+      const timeRemaining = garticState.timer;
+      const totalTime = garticState.totalTimer;
+      const points = Math.max(10, Math.round((timeRemaining / totalTime) * 100));
+
+      db.broadcast('gartic_guess', {
+        sender: currentProfile.name,
+        text: 'menjawab dengan benar!',
+        correct: true,
+        system: true,
+        msgId: `correct_${currentProfile.id}_${Date.now()}`
+      });
+      db.broadcast('gartic_score', {
+        userId: currentProfile.id,
+        score: points
+      });
+
+      setGarticState(prev => ({
+        ...prev,
+        correctGuessers: [...prev.correctGuessers, currentProfile.id]
+      }));
+    } else {
+      db.broadcast('gartic_guess', {
+        sender: currentProfile.name,
+        text: rawInput,
+        correct: false,
+        system: false,
+        msgId: `guess_${currentProfile.id}_${Date.now()}_${Math.random()}`
+      });
+    }
+  };
+
+  const handleClearCanvas = () => {
+    const canvas = garticCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    db.broadcast('gartic_draw', { points: [], color: '', width: 0, tool: 'pen', isEnd: false, isClear: true });
+  };
 
   const tttStateRef = useRef(tttState);
   const chessStateRef = useRef(chessState);
@@ -270,6 +873,192 @@ export const Tavern: React.FC<TavernProps> = ({
           }
           return updated;
         });
+      } else if (msg.type === 'gartic_start_round') {
+        const { round, drawerId, drawerName, wordHash, wordLength, totalRounds, duration, baseReward, leaderboard } = msg.payload;
+        setGarticRevealedWord('');
+        const canvas = garticCanvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        setGarticState(prev => ({
+          ...prev,
+          status: 'active',
+          round,
+          totalRounds,
+          drawerId,
+          drawerName,
+          wordHash,
+          wordLength,
+          timer: duration,
+          totalTimer: duration,
+          baseReward,
+          currentWord: '',
+          correctGuessers: [],
+          leaderboard: leaderboard || prev.leaderboard
+        }));
+        setGarticChat(prev => {
+          const msgId = `start_round_${round}`;
+          if (prev.some(m => m.id === msgId)) return prev;
+          
+          const newChat = round === 1 ? [] : [...prev];
+          return [
+            ...newChat,
+            {
+              id: msgId,
+              sender: 'Sistem',
+              text: `Ronde ${round} dimulai! Penggambar: ${drawerName}. Kata terdiri dari ${wordLength} huruf.`,
+              system: true
+            }
+          ];
+        });
+      } else if (msg.type === 'gartic_drawer_word') {
+        const { drawerId, word } = msg.payload;
+        if (currentProfile.id === drawerId) {
+          setGarticState(prev => ({ ...prev, currentWord: word }));
+        }
+      } else if (msg.type === 'gartic_timer_tick') {
+        const { timer } = msg.payload;
+        setGarticState(prev => ({ ...prev, timer }));
+      } else if (msg.type === 'gartic_end_round') {
+        const { word, round } = msg.payload;
+        setGarticState(prev => ({
+          ...prev,
+          status: 'idle',
+          currentWord: word
+        }));
+        setGarticChat(prev => {
+          const msgId = `end_round_${round}_${word}`;
+          if (prev.some(m => m.id === msgId)) return prev;
+          return [
+            ...prev,
+            {
+              id: msgId,
+              sender: 'Sistem',
+              text: `Ronde selesai! Katanya adalah: ${word.toUpperCase()}`,
+              system: true
+            }
+          ];
+        });
+      } else if (msg.type === 'gartic_draw') {
+        const { points, color, width, tool, isClear } = msg.payload;
+        const currentDrawerId = garticStateRef.current.drawerId;
+        if (currentProfile.id !== currentDrawerId) {
+          const canvas = garticCanvasRef.current;
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              if (isClear) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+              } else if (points && points.length > 0) {
+                if (tool === 'eraser') {
+                  ctx.globalCompositeOperation = 'destination-out';
+                } else {
+                  ctx.globalCompositeOperation = 'source-over';
+                  ctx.strokeStyle = color;
+                }
+                ctx.lineWidth = width;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                  ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.stroke();
+              }
+            }
+          }
+        }
+      } else if (msg.type === 'gartic_guess') {
+        const { sender, text, correct, system, msgId } = msg.payload;
+        setGarticChat(prev => {
+          if (msgId && prev.some(m => m.id === msgId)) return prev;
+          return [
+            ...prev,
+            {
+              id: msgId || Math.random().toString(),
+              sender,
+              text,
+              correct,
+              system
+            }
+          ];
+        });
+      } else if (msg.type === 'gartic_score') {
+        const { userId, score } = msg.payload;
+        setGarticState(prev => {
+          const newLeaderboard = { ...prev.leaderboard };
+          if (newLeaderboard[userId]) {
+            newLeaderboard[userId] = { ...newLeaderboard[userId], score: newLeaderboard[userId].score + score };
+          } else {
+            const targetProfile = profiles.find(pr => pr.id === userId);
+            newLeaderboard[userId] = {
+              name: targetProfile ? targetProfile.name : 'Pemain',
+              score: score,
+              nameColor: targetProfile?.sprite_json.nameColor
+            };
+          }
+          return { ...prev, leaderboard: newLeaderboard };
+        });
+      } else if (msg.type === 'gartic_game_over') {
+        const { timestamp } = msg.payload;
+        setGarticState(prev => ({ ...prev, status: 'ended' }));
+        const canvas = garticCanvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        setGarticChat(prev => {
+          const msgId = `game_over_${timestamp || Date.now()}`;
+          if (prev.some(m => m.id === msgId)) return prev;
+          return [
+            ...prev,
+            {
+              id: msgId,
+              sender: 'Sistem',
+              text: `Game Gartic Selesai! Menghitung hadiah koin...`,
+              system: true
+            }
+          ];
+        });
+      } else if (msg.type === 'gartic_config_sync') {
+        const config = msg.payload;
+        setGarticState(prev => ({
+          ...prev,
+          totalRounds: config.totalRounds ?? prev.totalRounds,
+          totalTimer: config.totalTimer ?? prev.totalTimer,
+          baseReward: config.baseReward ?? prev.baseReward,
+          words: config.words ?? prev.words
+        }));
+      } else if (msg.type === 'gartic_reset') {
+        setGarticRevealedWord('');
+        const canvas = garticCanvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        setGarticState(prev => {
+          const resetLeader = { ...prev.leaderboard };
+          Object.keys(resetLeader).forEach(key => {
+            resetLeader[key] = { ...resetLeader[key], score: 0 };
+          });
+          return {
+            ...prev,
+            status: 'idle',
+            round: 1,
+            timer: prev.totalTimer,
+            drawerId: null,
+            drawerName: null,
+            wordHash: null,
+            wordLength: 0,
+            currentWord: '',
+            correctGuessers: [],
+            leaderboard: resetLeader
+          };
+        });
+        setGarticChat([]);
       }
     });
 
@@ -343,7 +1132,7 @@ export const Tavern: React.FC<TavernProps> = ({
     return null;
   };
 
-  // ── Gacha handlers ────────────────────────────────────────────────────────
+  // Gacha handlers
   const handlePullCard = async () => {
     setGachaError('');
     setPullResult(null);
@@ -759,51 +1548,49 @@ export const Tavern: React.FC<TavernProps> = ({
   return (
     <div className="flex flex-col gap-4 p-2 relative">
       
-      {/* Room HUD controls (Discord + weather) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-slate-950/85 border border-[#cca566]/30 rounded">
-        <div className="flex items-center gap-3">
-          <span className="text-yellow-500 font-bold text-xs uppercase tracking-wide rpg-font-retro">
-            COZY DIVISION TAVERN
-          </span>
-          <a
-            href={localDiscordUrl ? (localDiscordUrl.startsWith('http://') || localDiscordUrl.startsWith('https://') ? localDiscordUrl : 'https://' + localDiscordUrl) : '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => playSelect()}
-            className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] border-2 border-purple-400/50 hover:scale-105"
-            title="Buka Portal Voice Channel"
-          >
-            <svg className="w-5 h-5 animate-spin" style={{ animationDuration: '4s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            <span className="text-[7px] font-extrabold tracking-wider mt-0.5 leading-none">PORTAL</span>
-          </a>
-        </div>
+      {/* Configure Panel (Director/Manager Only) */}
+      {currentProfile.role !== 'Staff' && (
+        <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-950/90 border-2 border-[#cca566]/40 rounded-lg shadow-xl shadow-black/50">
+          <div className="flex items-center gap-3">
+            <span className="text-amber-500 font-extrabold text-sm uppercase tracking-wider rpg-font-retro">
+              Tavern Config
+            </span>
+          </div>
 
-        {currentProfile.role !== 'Staff' && (
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="font-bold text-[#cca566] uppercase">PORTAL URL:</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="font-extrabold text-amber-100 uppercase tracking-wide text-xs rpg-font-retro">PORTAL URL:</span>
             <input
               type="text"
               value={localDiscordUrl}
               onChange={(e) => setLocalDiscordUrl(e.target.value)}
-              placeholder="https://discord.gg/..."
-              className="bg-black/60 text-yellow-100 border border-[#5a3d28] rounded px-2 py-1 w-52 text-[9px] font-semibold focus:outline-none focus:border-amber-500"
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
+              placeholder="Masukkan link dokumen (contoh: google.com)..."
+              className="bg-black/80 text-yellow-100 border border-amber-600/40 rounded px-3 py-1.5 w-72 text-xs font-semibold focus:outline-none focus:border-amber-500 placeholder:text-stone-600"
             />
-            <button
-              onClick={() => {
-                playClick();
-                if (onUpdateRoomConfig) {
-                  onUpdateRoomConfig('tavern', { discord_url: localDiscordUrl });
-                }
-              }}
-              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-[9px] rounded transition-colors"
-            >
-              SAVE
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  playClick();
+                  if (onUpdateRoomConfig) {
+                    onUpdateRoomConfig('tavern', { discord_url: localDiscordUrl });
+                    setShowSavedFeedback(true);
+                    setTimeout(() => setShowSavedFeedback(false), 3000);
+                  }
+                }}
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-black text-xs rounded transition-all active:scale-95 shadow-md shadow-amber-900/30 cursor-pointer flex-shrink-0"
+              >
+                SAVE
+              </button>
+              {showSavedFeedback && (
+                <span className="text-green-400 font-bold text-xs rpg-font-retro animate-bounce flex-shrink-0">
+                  ✓ Tersimpan!
+                </span>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
@@ -816,6 +1603,59 @@ export const Tavern: React.FC<TavernProps> = ({
               backgroundSize: '24px 24px'
             }}>
             
+            {/* FLOATING ACTION PORTALS */}
+            <div className="absolute top-3 right-3 flex items-center gap-3 z-30">
+              {/* Discord Voice Button */}
+              <div className="flex flex-col items-center gap-1 group">
+                <a
+                  href="discord://discord.com/channels/1452630913908342906/1452630915942453268"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => playSelect()}
+                  className="w-11 h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] shadow-[0_0_10px_rgba(88,101,242,0.4)] hover:shadow-[0_0_15px_rgba(88,101,242,0.7)] flex items-center justify-center text-white border-2 border-white/20 transition-all hover:scale-105"
+                  title="Buka Discord Voice"
+                >
+                  <svg className="w-5.5 h-5.5 fill-current" viewBox="0 0 127.14 96.36">
+                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36c2.65-3.6,5-7.46,7-11.52A68.66,68.66,0,0,1,28.68,79.3c.88-.65,1.76-1.32,2.6-2a75.52,75.52,0,0,0,71.72,0c.84.69,1.72,1.36,2.6,2a68.86,68.86,0,0,1-10.37,5.54c2,4.06,4.35,7.92,7,11.52A105.73,105.73,0,0,0,126.1,77.53C130.66,48,122.3,25.19,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" />
+                  </svg>
+                </a>
+                <span className="text-[7.5px] font-bold text-slate-300 bg-slate-950/90 px-1.5 py-0.5 rounded border border-slate-800/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity animate-none">
+                  DISCORD
+                </span>
+              </div>
+
+              {/* Portal Button */}
+              <div className="flex flex-col items-center gap-1 group">
+                {roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? (
+                  <a
+                    href={ensureAbsoluteUrl(roomConfig.discord_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => playSelect()}
+                    className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] flex items-center justify-center text-white border-2 border-purple-400/50 transition-all hover:scale-105 animate-[pulse_2.5s_infinite]"
+                    title="Buka Portal Dokumen/Link"
+                  >
+                    <svg className="w-5.5 h-5.5 animate-spin" style={{ animationDuration: '6s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    className="w-11 h-11 rounded-full bg-stone-700/85 text-stone-500 border-2 border-stone-600/50 flex items-center justify-center cursor-not-allowed opacity-90 transition-all"
+                    title="Portal belum disetting (Kosong)"
+                  >
+                    <svg className="w-5.5 h-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </button>
+                )}
+                <span className={`text-[7.5px] font-bold bg-slate-950/90 px-1.5 py-0.5 rounded border pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity ${roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? 'text-purple-300 border-purple-900/40' : 'text-stone-400 border-stone-800/40'}`}>
+                  PORTAL
+                </span>
+              </div>
+            </div>
+
             {/* Area Divider Line (Visual counter split) */}
             <div className="absolute top-0 bottom-0 left-1/2 w-1 border-r-2 border-dashed border-[#5a3d28]/20 pointer-events-none"></div>
 
@@ -837,19 +1677,25 @@ export const Tavern: React.FC<TavernProps> = ({
 
             {/* Tic-Tac-Toe Game Table */}
             <div 
-              onClick={() => { setActiveGameTab('ttt'); openGameModal(); }}
+              onClick={() => { 
+                setActiveGameTab('ttt'); 
+                openGameModal(); 
+                handleSeatClick({ id: 'tavern_seat_ttt', room_id: 'tavern', user_id: null, x: 0, y: 0 });
+              }}
               className="absolute top-[54%] left-[10%] -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-[#6d4c41] border-4 border-[#3e2723] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-blue-400 group"
             >
-              <span className="text-[12px]">🎮</span>
               <span className="text-[6px] text-[#ffd700] font-bold text-center leading-none mt-0.5 rpg-font-retro animate-pulse">TIC-TAC-TOE</span>
             </div>
 
             {/* Chess Game Table */}
             <div 
-              onClick={() => { setActiveGameTab('chess'); openGameModal(); }}
+              onClick={() => { 
+                setActiveGameTab('chess'); 
+                openGameModal(); 
+                handleSeatClick({ id: 'tavern_seat_chess', room_id: 'tavern', user_id: null, x: 0, y: 0 });
+              }}
               className="absolute top-[54%] left-[42%] -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-[#5c4033] border-4 border-[#2d1b15] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 group"
             >
-              <span className="text-[12px]">♟️</span>
               <span className="text-[6px] text-[#cca566] font-bold text-center leading-none mt-0.5 rpg-font-retro animate-pulse">CHESS GAME</span>
             </div>
 
@@ -907,7 +1753,7 @@ export const Tavern: React.FC<TavernProps> = ({
                   className="bg-[#dfbe8c]/90 border border-amber-600 px-1 rounded text-[6.5px] font-bold mt-0.5 font-mono text-[#3e2723] shadow-md"
                   style={{ color: playerWhiteProfile.sprite_json.nameColor || '#3e2723' }}
                 >
-                  ⚪: {playerWhiteProfile.name.split(' ')[0]}
+                  Putih: {playerWhiteProfile.name.split(' ')[0]}
                 </span>
               </div>
             )}
@@ -926,25 +1772,24 @@ export const Tavern: React.FC<TavernProps> = ({
                   className="bg-[#3e2723]/95 border border-stone-850 px-1 rounded text-[6.5px] font-bold mt-0.5 font-mono text-stone-200 shadow-md"
                   style={{ color: playerBlackProfile.sprite_json.nameColor || '#eab308' }}
                 >
-                  ⚫: {playerBlackProfile.name.split(' ')[0]}
+                  Hitam: {playerBlackProfile.name.split(' ')[0]}
                 </span>
               </div>
             )}
 
-            {/* Render Spectator Avatars around the active table */}
-            {spectatorIds
-              .filter(id => {
-                if (activeGameTab === 'chess') {
-                  return id !== chessState.playerWhiteId && id !== chessState.playerBlackId;
-                } else {
-                  return id !== tttState.playerXId && id !== tttState.playerOId;
-                }
-              })
-              .map((specId, index) => {
+            {/* Render Tic-Tac-Toe Table Spectators/Occupants */}
+            {(() => {
+              const tttSeatUserId = seats.find(s => s.id === 'tavern_seat_ttt')?.user_id;
+              const tttSpectatorIds = Array.from(new Set([
+                ...(activeGameTab === 'ttt' ? spectatorIds : []),
+                ...(tttSeatUserId ? [tttSeatUserId] : [])
+              ])).filter(id => id && id !== tttState.playerXId && id !== tttState.playerOId);
+
+              return tttSpectatorIds.map((specId, index) => {
                 const specProfile = profiles.find(p => p.id === specId);
                 if (!specProfile) return null;
                 
-                const tableX = activeGameTab === 'chess' ? 42 : 10;
+                const tableX = 10;
                 const coords = [
                   { x: tableX, y: 36 },
                   { x: tableX, y: 72 },
@@ -957,7 +1802,7 @@ export const Tavern: React.FC<TavernProps> = ({
                 
                 return (
                   <div 
-                    key={specId}
+                    key={`ttt-spec-${specId}`}
                     style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center opacity-90 scale-95"
                   >
@@ -973,11 +1818,60 @@ export const Tavern: React.FC<TavernProps> = ({
                       className="bg-slate-900/90 border border-slate-700 px-0.5 rounded text-[5px] font-bold mt-0.5 leading-none"
                       style={{ color: specProfile.sprite_json.nameColor || '#eab308' }}
                     >
-                      👁️ {specProfile.name.split(' ')[0]}
+                      {specProfile.name.split(' ')[0]}
                     </span>
                   </div>
                 );
-              })}
+              });
+            })()}
+
+            {/* Render Chess Table Spectators/Occupants */}
+            {(() => {
+              const chessSeatUserId = seats.find(s => s.id === 'tavern_seat_chess')?.user_id;
+              const chessSpectatorIds = Array.from(new Set([
+                ...(activeGameTab === 'chess' ? spectatorIds : []),
+                ...(chessSeatUserId ? [chessSeatUserId] : [])
+              ])).filter(id => id && id !== chessState.playerWhiteId && id !== chessState.playerBlackId);
+
+              return chessSpectatorIds.map((specId, index) => {
+                const specProfile = profiles.find(p => p.id === specId);
+                if (!specProfile) return null;
+                
+                const tableX = 42;
+                const coords = [
+                  { x: tableX, y: 36 },
+                  { x: tableX, y: 72 },
+                  { x: tableX - 7, y: 66 },
+                  { x: tableX + 7, y: 66 },
+                  { x: tableX - 7, y: 44 },
+                  { x: tableX + 7, y: 44 }
+                ];
+                const pos = coords[index % coords.length];
+                
+                return (
+                  <div 
+                    key={`chess-spec-${specId}`}
+                    style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center opacity-90 scale-95"
+                  >
+                    <SpriteRenderer
+                      base={specProfile.sprite_json.base}
+                      hair={specProfile.sprite_json.hair}
+                      outfit={specProfile.sprite_json.outfit}
+                      accessory={specProfile.sprite_json.accessory}
+                      petId="none"
+                      size={36}
+                    />
+                    <span 
+                      className="bg-slate-900/90 border border-slate-700 px-0.5 rounded text-[5px] font-bold mt-0.5 leading-none"
+                      style={{ color: specProfile.sprite_json.nameColor || '#eab308' }}
+                    >
+                      {specProfile.name.split(' ')[0]}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
 
             {/* ====================================================
                 RIGHT SIDE: BAR COUNTER, NPC BARTENDER, SHOP & GACHA
@@ -989,32 +1883,57 @@ export const Tavern: React.FC<TavernProps> = ({
             </div>
 
             {/* NPC Bartender Sprite */}
-            <div className="absolute top-[12%] right-[25%] -translate-x-1/2 flex flex-col items-center z-0">
-              {/* NPC Portrait */}
-              <div className="w-12 h-12 bg-slate-900 border-2 border-[#5a3d28] rounded-full overflow-hidden flex items-center justify-center">
-                <span className="text-xl">🤵</span>
-              </div>
+            <div className="absolute top-[12%] right-[25%] -translate-x-1/2 flex flex-col items-center z-10">
+              <SpriteRenderer
+                base="base_3"
+                hair="hair_black"
+                outfit="outfit_blue"
+                accessory="none"
+                petId="none"
+                size={44}
+              />
               <span className="bg-slate-950/80 px-1.5 py-0.2 rounded text-[6.5px] border border-amber-600/40 text-[#cca566] font-bold mt-0.5">BARTENDER NPC</span>
             </div>
 
             {/* Clickable Cash Register (Kasir Pack) */}
             <div
-              onClick={() => { playClick(); setShowKasir(true); }}
+              onClick={() => { 
+                playClick(); 
+                setShowKasir(true); 
+                handleSeatClick({ id: 'tavern_seat_kasir', room_id: 'tavern', user_id: null, x: 0, y: 0 });
+              }}
               className="absolute top-[22%] right-[38%] w-10 h-10 bg-[#795548] border-2 border-[#3e2723] rounded flex flex-col items-center justify-center cursor-pointer hover:scale-105 transition-transform hover:border-amber-400 shadow z-20 group"
             >
-              <span className="text-sm">🪙</span>
               <span className="text-[6px] text-green-400 font-bold font-mono group-hover:animate-bounce leading-none mt-0.5">KASIR</span>
             </div>
 
             {/* Clickable Gacha Machine (Memory Gacha) */}
             <div
-              onClick={() => { playClick(); setShowGacha(true); }}
+              onClick={() => { 
+                playClick(); 
+                setShowGacha(true); 
+                handleSeatClick({ id: 'tavern_seat_gacha', room_id: 'tavern', user_id: null, x: 0, y: 0 });
+              }}
               className="absolute top-[22%] right-[10%] w-10 h-10 bg-[#d90429] border-2 border-[#9b0000] rounded-t-xl flex flex-col items-center justify-center cursor-pointer hover:scale-105 transition-transform hover:border-yellow-400 shadow-xl z-20 group"
             >
               <div className="w-4 h-4 bg-white/30 rounded-full border border-white/50 flex items-center justify-center animate-pulse">
-                <span className="text-[8px]">⭐</span>
               </div>
               <span className="text-[5.5px] text-white font-bold tracking-tight leading-none mt-0.5 rpg-font-retro">GACHA</span>
+            </div>
+
+            {/* Clickable Gartic Game Table */}
+            <div 
+              onClick={() => { 
+                playClick(); 
+                setActiveGameTab('gartic'); 
+                openGameModal(); 
+                handleSeatClick({ id: 'tavern_seat_gartic', room_id: 'tavern', user_id: null, x: 0, y: 0 });
+              }}
+              style={{ left: '78%', top: '54%', transform: 'translate(-50%, -50%)' }}
+              className="absolute w-16 h-16 bg-[#3d271f] border-4 border-[#ffd700] rounded-full shadow-2xl z-20 cursor-pointer flex flex-col items-center justify-center hover:scale-105 transition-transform hover:border-yellow-400 group animate-pulse"
+              title="Gartic Multiplayer Game"
+            >
+              <span className="text-[6px] text-[#ffd700] font-bold text-center leading-none mt-0.5 rpg-font-retro">GARTIC GAME</span>
             </div>
 
 
@@ -1022,7 +1941,14 @@ export const Tavern: React.FC<TavernProps> = ({
                 SEATS AND ONLINE MEMBERS PLOTTING
                 ==================================================== */}
             {seats.map((seat) => {
+              // Exclude Tic-Tac-Toe and Chess seats from general rendering to prevent duplication with custom table renderers
+              if (seat.id === 'tavern_seat_ttt' || seat.id === 'tavern_seat_chess') {
+                return null;
+              }
               const occupant = profiles.find(p => p.id === seat.user_id);
+              if (!occupant && (seat.id.includes('notice') || seat.id.includes('scroll') || seat.id.includes('gartic') || seat.id.includes('gacha') || seat.id.includes('kasir'))) {
+                return null;
+              }
               
               // Don't render seat triggers if someone sits there to keep visual clean
               return (
@@ -1196,7 +2122,7 @@ export const Tavern: React.FC<TavernProps> = ({
               </form>
             ) : (
               <div className="border-t border-stone-850 pt-3 mt-3 text-center text-[8.5px] text-slate-500 font-bold italic">
-                🔒 Arsip evaluasi hari sebelumnya terkunci.
+                Arsip evaluasi hari sebelumnya terkunci.
               </div>
             )}
           </div>
@@ -1221,7 +2147,7 @@ export const Tavern: React.FC<TavernProps> = ({
             {/* Coin balance */}
             <div className="flex items-center gap-2 mb-4 bg-amber-950/30 border border-amber-700/40 rounded px-3 py-2">
               <Coins size={14} className="text-yellow-500" />
-              <span className="text-xs font-bold text-yellow-300">Saldo Koin: <span className="text-yellow-100 text-sm">{localCoins} 🪙</span></span>
+              <span className="text-xs font-bold text-yellow-300">Saldo Koin: <span className="text-yellow-100 text-sm">{localCoins} koin</span></span>
             </div>
 
             {/* Pack selection */}
@@ -1241,7 +2167,11 @@ export const Tavern: React.FC<TavernProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-base">{info.emoji}</span>
+                        <div className="w-8 h-8 rounded bg-slate-900 border border-[#5a3d28] flex items-center justify-center flex-shrink-0">
+                          {pack === 'individual' && <Package size={14} className="text-blue-400" />}
+                          {pack === 'education' && <Sparkles size={14} className="text-green-400" />}
+                          {pack === 'ieee' && <Sparkles size={14} className="text-yellow-400 animate-pulse" />}
+                        </div>
                         <div>
                           <p className="font-bold text-[11px] text-yellow-100">{info.label}</p>
                           <p className="text-[8px] text-slate-400">{info.desc}</p>
@@ -1250,7 +2180,7 @@ export const Tavern: React.FC<TavernProps> = ({
                       <span className={`font-bold text-xs px-2 py-1 rounded border font-mono ${
                         canAfford ? 'text-yellow-300 border-amber-600 bg-amber-950/60' : 'text-slate-500 border-slate-700'
                       }`}>
-                        {info.cost} 🪙
+                        {info.cost} koin
                       </span>
                     </div>
                     <p className="text-[7px] text-slate-500 mt-1.5 font-mono">{info.probs}</p>
@@ -1296,8 +2226,8 @@ export const Tavern: React.FC<TavernProps> = ({
             {/* Coin Balance */}
             <div className="flex items-center gap-2 mb-4 bg-amber-950/30 border border-amber-700/40 rounded px-3 py-2">
               <Coins size={12} className="text-yellow-500" />
-              <span className="text-[10px] font-bold text-yellow-300">Saldo: {localCoins} 🪙</span>
-              <span className="ml-auto text-[9px] text-slate-400">Biaya: {PACK_INFO[selectedPack].cost} 🪙</span>
+              <span className="text-[10px] font-bold text-yellow-300">Saldo: {localCoins} koin</span>
+              <span className="ml-auto text-[9px] text-slate-400">Biaya: {PACK_INFO[selectedPack].cost} koin</span>
             </div>
 
             {/* Card Area */}
@@ -1310,7 +2240,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     onClick={handlePullCard}
                   >
                     <div className="flex flex-col items-center gap-2">
-                      <span className="text-4xl">🎴</span>
+                      <Package size={48} className="text-amber-500 animate-pulse" />
                       <span className="text-[9px] text-amber-400 font-bold rpg-font-retro">ROBEK!</span>
                     </div>
                   </div>
@@ -1321,7 +2251,7 @@ export const Tavern: React.FC<TavernProps> = ({
               {gachaPulling && (
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-32 h-44 bg-gradient-to-br from-amber-900 to-yellow-700 border-4 border-yellow-400 rounded-xl flex items-center justify-center shadow-2xl animate-pulse">
-                    <span className="text-4xl animate-spin">✨</span>
+                    <Sparkles size={48} className="text-yellow-400 animate-spin" />
                   </div>
                   <p className="text-[10px] text-amber-400 font-bold animate-bounce">Menarik kartu...</p>
                 </div>
@@ -1359,7 +2289,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     </span>
                     <span className="text-[9px] font-bold text-yellow-50 text-center leading-tight">{pullResult.asset.name}</span>
                     {pullResult.isDuplicate && (
-                      <span className="text-[7px] text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700">🔄 DUPLIKAT</span>
+                      <span className="text-[7px] text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700">DUPLIKAT</span>
                     )}
                   </div>
 
@@ -1367,7 +2297,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     <p className="text-[9px] text-slate-400 text-center">Item sudah ada di inventory-mu. Quantity +1!</p>
                   )}
                   {!pullResult.isDuplicate && (
-                    <p className="text-[9px] text-green-400 text-center font-bold">✨ Item baru ditambahkan ke inventory!</p>
+                    <p className="text-[9px] text-green-400 text-center font-bold">Item baru ditambahkan ke inventory!</p>
                   )}
                 </div>
               )}
@@ -1381,7 +2311,7 @@ export const Tavern: React.FC<TavernProps> = ({
                   disabled={gachaPulling || localCoins < PACK_INFO[selectedPack].cost}
                   className="rpg-btn-game w-full py-3 flex items-center justify-center gap-2 font-bold text-sm disabled:opacity-40"
                 >
-                  <Sparkles size={14} /> {gachaPulling ? 'MENARIK...' : `ROBEK KARTU! (${PACK_INFO[selectedPack].cost} 🪙)`}
+                  <Sparkles size={14} /> {gachaPulling ? 'MENARIK...' : `ROBEK KARTU! (${PACK_INFO[selectedPack].cost} koin)`}
                 </button>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -1390,7 +2320,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     disabled={gachaPulling || localCoins < PACK_INFO[selectedPack].cost}
                     className="rpg-btn-game w-full py-2.5 flex items-center justify-center gap-2 font-bold disabled:opacity-40"
                   >
-                    <Sparkles size={12} /> PULL LAGI ({PACK_INFO[selectedPack].cost} 🪙)
+                    <Sparkles size={12} /> PULL LAGI ({PACK_INFO[selectedPack].cost} koin)
                   </button>
                   <button
                     onClick={handleReroll}
@@ -1398,7 +2328,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     className="rpg-btn-game w-full py-2 flex items-center justify-center gap-2 text-[10px] font-bold border-yellow-500 disabled:opacity-40"
                     title="Lakukan reroll tarikan gacha"
                   >
-                    🔁 REROLL — {PACK_INFO[selectedPack].cost} 🪙
+                    REROLL — {PACK_INFO[selectedPack].cost} koin
                   </button>
                 </div>
               )}
@@ -1421,11 +2351,15 @@ export const Tavern: React.FC<TavernProps> = ({
           ==================================================== */}
       {showGame && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4">
-          <div className={`rpg-panel-stone ${activeGameTab === 'chess' ? 'max-w-md' : 'max-w-sm'} w-full p-6 border-4 border-[#cca566] text-center transition-all duration-300`}>
+          <div className={`rpg-panel-stone ${
+            activeGameTab === 'gartic' ? 'max-w-4xl' : activeGameTab === 'chess' ? 'max-w-md' : 'max-w-sm'
+          } w-full p-6 border-4 border-[#cca566] text-center transition-all duration-300`}>
             
             <div className="flex justify-between items-center border-b border-stone-750 pb-2 mb-4">
               <h3 className="font-bold text-amber-500 text-xs rpg-font-retro flex items-center gap-1.5">
-                <Gamepad2 size={14} /> {activeGameTab === 'ttt' ? 'COZY TIC-TAC-TOE' : 'SANDBOX CHESS'}
+                <Gamepad2 size={14} /> {
+                  activeGameTab === 'gartic' ? 'MULTIPLE REAL-TIME GARTIC' : activeGameTab === 'ttt' ? 'COZY TIC-TAC-TOE' : 'SANDBOX CHESS'
+                }
               </h3>
               <button onClick={closeGameModal} className="text-slate-400 hover:text-white p-1">
                 <X size={16} />
@@ -1454,9 +2388,19 @@ export const Tavern: React.FC<TavernProps> = ({
               >
                 SANDBOX CHESS
               </button>
+              <button
+                onClick={() => { playSelect(); setActiveGameTab('gartic'); }}
+                className={`px-3 py-1 text-[9px] font-bold rpg-font-retro rounded border transition-all ${
+                  activeGameTab === 'gartic'
+                    ? 'border-amber-500 bg-amber-950/40 text-yellow-300'
+                    : 'border-stone-800 bg-stone-900/60 text-stone-500 hover:border-stone-700 hover:text-stone-300'
+                }`}
+              >
+                GARTIC MULTI
+              </button>
             </div>
 
-            {activeGameTab === 'ttt' ? (
+            {activeGameTab === 'ttt' && (
               <>
                 {/* Player Roles Panel */}
                 <div className="grid grid-cols-2 gap-2 mb-4">
@@ -1528,9 +2472,9 @@ export const Tavern: React.FC<TavernProps> = ({
                 <div className="mb-4 text-xs font-semibold text-yellow-100">
                   {tttState.winner ? (
                     tttState.winner === 'Draw' ? (
-                      <span className="text-yellow-500 font-bold text-sm block animate-bounce">⚡ SERI / DRAW! ⚡</span>
+                      <span className="text-yellow-500 font-bold text-sm block animate-bounce">SERI / DRAW!</span>
                     ) : (
-                      <span className="text-green-400 font-bold text-sm block animate-bounce">🎉 PEMENANG: PLAYER {tttState.winner}! 🎉</span>
+                      <span className="text-green-400 font-bold text-sm block animate-bounce">PEMENANG: PLAYER {tttState.winner}!</span>
                     )
                   ) : (
                     <span>GILIRAN JALAN: <strong className="text-yellow-400">{tttState.turn}</strong></span>
@@ -1554,7 +2498,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     }}
                     className="rpg-btn-game w-full border border-[#cca566] text-amber-500 py-1.5 text-[9px] font-bold mb-2 cursor-pointer shadow-md"
                   >
-                    🎮 MAIN LAGI (RESET PAPAN)
+                    MAIN LAGI (RESET PAPAN)
                   </button>
                 )}
 
@@ -1565,12 +2509,14 @@ export const Tavern: React.FC<TavernProps> = ({
                   BERSIHKAN PAPAN & KELUAR GAME
                 </button>
               </>
-            ) : (
+            )}
+
+            {activeGameTab === 'chess' && (
               <>
                 {/* Chess Player Roles Panel */}
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   <div className="p-2 border border-amber-900 bg-amber-950/20 rounded text-xs">
-                    <span className="block text-[8px] text-amber-300 font-bold">PUTIH (WHITE ⚪)</span>
+                    <span className="block text-[8px] text-amber-300 font-bold">PUTIH (WHITE)</span>
                     <span 
                       className="font-bold text-[10px]"
                       style={{ color: playerWhiteProfile?.sprite_json.nameColor || '#fafaf9' }}
@@ -1587,7 +2533,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     )}
                   </div>
                   <div className="p-2 border border-stone-850 bg-stone-900/60 rounded text-xs">
-                    <span className="block text-[8px] text-stone-400 font-bold">HITAM (BLACK ⚫)</span>
+                    <span className="block text-[8px] text-stone-400 font-bold">HITAM (BLACK)</span>
                     <span 
                       className="font-bold text-[10px]"
                       style={{ color: playerBlackProfile?.sprite_json.nameColor || '#eab308' }}
@@ -1659,7 +2605,7 @@ export const Tavern: React.FC<TavernProps> = ({
                                 isPlayer ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
                               } ${
                                 pieceColor === 'w'
-                                  ? 'text-stone-50 drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.95)]'
+                                  ? 'text-stone-55 drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.95)]'
                                   : 'text-[#18110f] drop-shadow-[0_1.2px_1.2px_rgba(255,255,255,0.4)]'
                               } ${isSelected ? 'scale-110' : ''}`}
                             >
@@ -1731,7 +2677,7 @@ export const Tavern: React.FC<TavernProps> = ({
                 <div className="mb-4 text-xs font-semibold text-yellow-100">
                   {chessState.winner ? (
                     <span className="text-green-400 font-bold text-sm block animate-bounce">
-                      🎉 PEMENANG: PLAYER {chessState.winner === 'white' ? 'PUTIH (WHITE)' : 'HITAM (BLACK)'}! 🎉
+                      PEMENANG: PLAYER {chessState.winner === 'white' ? 'PUTIH (WHITE)' : 'HITAM (BLACK)'}!
                     </span>
                   ) : (
                     <span>MODE BEBAS (SANDBOX) — Tarik & taruh bidak atau klik untuk jalan!</span>
@@ -1744,7 +2690,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     onClick={playAgainChess}
                     className="rpg-btn-game w-full border border-[#cca566] text-amber-500 py-1.5 text-[9px] font-bold mb-2 cursor-pointer shadow-md"
                   >
-                    🎮 MAIN LAGI (RESET PAPAN)
+                    MAIN LAGI (RESET PAPAN)
                   </button>
                 )}
 
@@ -1756,7 +2702,505 @@ export const Tavern: React.FC<TavernProps> = ({
                 </button>
               </>
             )}
-            
+
+            {activeGameTab === 'gartic' && (
+              <div className="flex flex-col gap-4 text-left font-sans text-stone-200">
+                {/* Top Status Bar / HUD */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/80 border border-amber-600/40 p-3 rounded-lg animate-fade-in">
+                  <div className="flex items-center gap-3">
+                    <span className="bg-amber-950/60 border border-amber-600/60 text-yellow-400 font-extrabold text-[10px] px-2.5 py-1 rounded rpg-font-retro">
+                      RONDE {garticState.round}/{garticState.totalRounds}
+                    </span>
+                    <span className="text-stone-300 text-xs font-semibold">
+                      Penggambar: <strong className="text-yellow-100">{garticState.drawerName || 'Menunggu...'}</strong>
+                    </span>
+                  </div>
+
+                  {/* Secret Word Hint / Blanks */}
+                  <div className="flex flex-col items-center">
+                    {garticState.status === 'active' ? (
+                      garticState.drawerId === currentProfile.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider">Kata Rahasia:</span>
+                          <span className="text-xs font-black tracking-widest text-green-400 bg-green-950/40 px-2.5 py-1 rounded border border-green-800/40 font-mono">
+                            {garticState.currentWord.toUpperCase()}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider">Petunjuk:</span>
+                          <span className="text-sm font-black tracking-[0.25em] text-yellow-300 font-mono bg-black/60 px-3 py-1 rounded border border-amber-900/40">
+                            {garticState.correctGuessers.includes(currentProfile.id) || garticRevealedWord ? (
+                              <span className="text-green-400 font-bold">{garticRevealedWord.toUpperCase()}</span>
+                            ) : (
+                              Array(garticState.wordLength).fill('_').join(' ')
+                            )}
+                          </span>
+                        </div>
+                      )
+                    ) : (
+                      <span className="text-[10px] text-stone-400 font-bold italic">Round Selesai</span>
+                    )}
+                  </div>
+
+                  {/* Timer Display */}
+                  <div className="flex items-center gap-2">
+                    <Clock size={14} className="text-amber-500" />
+                    <span className={`text-base font-mono font-bold ${
+                      garticState.timer <= 15 ? 'text-red-500 animate-pulse' : 'text-green-400'
+                    }`}>
+                      {garticState.timer}s
+                    </span>
+                  </div>
+                </div>
+
+                {/* Main 3-Column Content Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  
+                  {/* Column 1: Leaderboard & Player Lobby (3 Spans) */}
+                  <div className="md:col-span-3 bg-slate-950/70 border border-[#cca566]/20 p-3 rounded-lg flex flex-col h-[380px] overflow-hidden animate-fade-in">
+                    <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest border-b border-amber-900/30 pb-1 mb-2 font-mono flex items-center gap-1">
+                      <Trophy size={11} /> Papan Skor ({presencePlayers.length} P)
+                    </span>
+                    <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+                      {presencePlayers.map(p => {
+                        const scoreData = garticState.leaderboard[p.id] || { score: 0 };
+                        const isDrawer = garticState.drawerId === p.id;
+                        const isGuessed = garticState.correctGuessers.includes(p.id);
+                        return (
+                          <div 
+                            key={p.id}
+                            className={`flex items-center justify-between p-2 rounded border text-xs ${
+                              isDrawer 
+                                ? 'bg-amber-950/20 border-amber-600/40' 
+                                : isGuessed 
+                                  ? 'bg-green-950/20 border-green-700/40 text-green-300 font-bold'
+                                  : 'bg-[#121212] border-stone-850'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 truncate">
+                              {isDrawer ? (
+                                <Brush size={11} className="text-amber-400 flex-shrink-0 animate-bounce" />
+                              ) : isGuessed ? (
+                                <Check size={11} className="text-green-400 flex-shrink-0 font-bold" />
+                              ) : (
+                                <div className="w-1.5 h-1.5 rounded-full bg-slate-500 flex-shrink-0" />
+                              )}
+                              {(() => {
+                                const pProfile = profiles.find(pr => pr.id === p.id);
+                                if (!pProfile) return null;
+                                return (
+                                  <div className="w-5 h-5 bg-slate-950/60 border border-[#cca566]/20 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                    <SpriteRenderer
+                                      base={pProfile.sprite_json.base}
+                                      hair={pProfile.sprite_json.hair}
+                                      outfit={pProfile.sprite_json.outfit}
+                                      accessory={pProfile.sprite_json.accessory}
+                                      petId="none"
+                                      size={18}
+                                    />
+                                  </div>
+                                );
+                              })()}
+                              <span 
+                                className="font-bold truncate"
+                                style={{ color: p.id === currentProfile.id ? '#ffd700' : undefined }}
+                              >
+                                {p.name.split(' ')[0]}
+                              </span>
+                            </div>
+                            <span className="font-mono font-bold text-[10px] text-stone-300 bg-black/40 px-1.5 py-0.5 rounded">
+                              {scoreData.score} pts
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Column 2: Canvas Drawing Board (6 Spans) */}
+                  <div className="md:col-span-6 flex flex-col gap-2">
+                    <div className="relative bg-stone-900 border-2 border-amber-600/40 rounded-lg overflow-hidden h-[300px]">
+                      <canvas
+                        ref={garticCanvasRef}
+                        width={500}
+                        height={300}
+                        onMouseDown={handleCanvasMouseDown}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUpOrLeave}
+                        onMouseLeave={handleCanvasMouseUpOrLeave}
+                        onTouchStart={handleCanvasTouchStart}
+                        onTouchMove={handleCanvasTouchMove}
+                        onTouchEnd={handleCanvasMouseUpOrLeave}
+                        className={`w-full h-full bg-[#161413] ${
+                          garticState.drawerId === currentProfile.id && garticState.status === 'active'
+                            ? 'cursor-crosshair'
+                            : 'pointer-events-none'
+                        }`}
+                      />
+                      
+                      {/* overlay if round inactive / drawer selection banner */}
+                      {garticState.status === 'idle' && (
+                        <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center text-center p-4">
+                          <span className="text-xs font-bold text-yellow-300 rpg-font-retro animate-pulse">LOBBY GAME GARTIC</span>
+                          <p className="text-[9.5px] text-slate-400 mt-2 font-medium max-w-xs leading-relaxed">
+                            {currentProfile.role === 'Director' 
+                              ? 'Sebagai Director, silakan sesuaikan kata/config dan klik "MULAI GAME" di panel bawah.' 
+                              : 'Menunggu game dimulai oleh Director...'}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* overlay when round ended */}
+                      {garticState.status === 'ended' && (
+                        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                          <Trophy size={36} className="text-yellow-500 mb-2 animate-bounce" />
+                          <span className="text-sm font-bold text-green-400 rpg-font-retro animate-bounce">GAME SELESAI!</span>
+                          <p className="text-[10px] text-stone-300 mt-2.5 font-bold mb-4">Papan peringkat akhir dan bonus koin telah dihitung.</p>
+                          {currentProfile.role === 'Director' && (
+                            <button
+                              type="button"
+                              onClick={() => { playClick(); resetGarticGame(); }}
+                              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-stone-950 font-extrabold text-[10.5px] rounded active:scale-95 transition-all cursor-pointer shadow-md flex items-center gap-1.5 font-mono"
+                            >
+                              KEMBALI KE LOBBY (RESET)
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Canvas Controls Palette (Drawer only) */}
+                    {garticState.drawerId === currentProfile.id && garticState.status === 'active' && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/80 p-2.5 rounded-lg border border-amber-900/40 animate-fade-in">
+                        {/* Tool choice */}
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { playSelect(); setGarticTool('pen'); }}
+                            className={`p-1.5 rounded border transition-colors ${
+                              garticTool === 'pen' ? 'bg-amber-600 text-stone-950 border-amber-500' : 'bg-black/60 border-stone-850 hover:border-stone-700'
+                            }`}
+                            title="Pensil"
+                          >
+                            <Brush size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { playSelect(); setGarticTool('eraser'); }}
+                            className={`p-1.5 rounded border transition-colors ${
+                              garticTool === 'eraser' ? 'bg-amber-600 text-stone-950 border-amber-500' : 'bg-black/60 border-stone-850 hover:border-stone-700'
+                            }`}
+                            title="Penghapus"
+                          >
+                            <Eraser size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { playClick(); handleClearCanvas(); }}
+                            className="p-1.5 rounded border bg-red-950/40 text-red-400 border-red-900/30 hover:bg-red-900 hover:text-stone-950"
+                            title="Bersihkan Kanvas"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+
+                        {/* Colors */}
+                        <div className="flex items-center gap-1">
+                          {['#fafaf9', '#f59e0b', '#ef4444', '#3b82f6', '#10b981', '#8b5cf6', '#e0f2fe', '#374151'].map(color => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => { playSelect(); setGarticDrawingColor(color); setGarticTool('pen'); }}
+                              style={{ backgroundColor: color }}
+                              className={`w-4 h-4 rounded-full border transition-all ${
+                                garticDrawingColor === color && garticTool === 'pen' ? 'scale-120 ring-2 ring-amber-500 ring-offset-2 ring-offset-slate-950' : 'opacity-85 hover:opacity-100 hover:scale-110'
+                              }`}
+                            />
+                          ))}
+                        </div>
+
+                        {/* Brush Width */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[8px] font-bold text-stone-400 uppercase">Lebar:</span>
+                          <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            value={garticDrawingWidth}
+                            onChange={(e) => setGarticDrawingWidth(parseInt(e.target.value))}
+                            className="w-16 accent-amber-500 cursor-pointer h-1 bg-slate-950 rounded-lg appearance-none"
+                          />
+                          <span className="text-[10px] font-bold font-mono text-amber-200">{garticDrawingWidth}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Column 3: Live Guess Chat Feed (3 Spans) */}
+                  <div className="md:col-span-3 bg-slate-950/70 border border-[#cca566]/20 p-3 rounded-lg flex flex-col h-[380px] justify-between animate-fade-in">
+                    <div className="flex flex-col flex-1 min-h-0">
+                      <div className="flex justify-between items-center border-b border-amber-900/30 pb-1 mb-2 flex-shrink-0">
+                        <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1">
+                          <MessageSquare size={11} /> Tebakan Chat
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { playClick(); setGarticChat([]); }}
+                          className="text-[8px] font-bold text-red-400 hover:text-red-300 font-mono bg-red-950/40 px-1.5 py-0.5 rounded border border-red-900/50 cursor-pointer transition-all active:scale-95 flex-shrink-0"
+                          title="Hapus semua chat tebakan"
+                        >
+                          HAPUS
+                        </button>
+                      </div>
+                      
+                      {/* Message list */}
+                      <div className="flex-1 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+                        {garticChat.map(msg => (
+                          <div 
+                            key={msg.id} 
+                            className={`p-1.5 rounded text-[10.5px] leading-relaxed break-words ${
+                              msg.system 
+                                ? msg.correct 
+                                  ? 'bg-green-950/30 border border-green-800/40 text-green-300 font-bold' 
+                                  : 'bg-amber-950/30 text-amber-300 font-bold' 
+                                : 'bg-[#181818]/65 border border-stone-850 text-stone-200'
+                            }`}
+                          >
+                            <span className="font-extrabold text-[9.5px] text-amber-100 pr-1.5 border-r border-stone-800 mr-1.5">
+                              {msg.sender.split(' ')[0]}
+                            </span>
+                            <span>{msg.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Chat Box Form */}
+                    <form onSubmit={handleSendGarticGuess} className="border-t border-[#3e2723]/60 pt-2 flex gap-1.5 mt-2 flex-shrink-0">
+                      <input
+                        type="text"
+                        value={garticChatInput}
+                        onChange={(e) => setGarticChatInput(e.target.value)}
+                        placeholder={
+                          garticState.drawerId === currentProfile.id 
+                            ? 'Anda Penggambar...' 
+                            : garticState.correctGuessers.includes(currentProfile.id)
+                              ? 'Tebakan benar! ✓'
+                              : 'Ketik tebakan...'
+                        }
+                        disabled={
+                          garticState.drawerId === currentProfile.id || 
+                          garticState.correctGuessers.includes(currentProfile.id) || 
+                          garticState.status !== 'active'
+                        }
+                        className="flex-1 bg-black/80 text-yellow-50 px-2 py-1 rounded border border-amber-900/40 text-[10px] focus:outline-none focus:border-amber-600 placeholder:text-stone-600"
+                      />
+                      <button
+                        type="submit"
+                        disabled={
+                          garticState.drawerId === currentProfile.id || 
+                          garticState.correctGuessers.includes(currentProfile.id) || 
+                          garticState.status !== 'active'
+                        }
+                        className="px-2 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:hover:bg-amber-600 text-stone-950 font-extrabold text-[10px] rounded active:scale-95 transition-all cursor-pointer"
+                      >
+                        GUESS
+                      </button>
+                    </form>
+                  </div>
+
+                </div>
+
+                {/* Director Control Panel & Config */}
+                {currentProfile.role === 'Director' && (
+                  <div className="bg-slate-950/85 border border-[#cca566]/20 p-3.5 rounded-lg flex flex-col gap-3 mt-2 font-mono">
+                    <div className="flex items-center justify-between border-b border-amber-900/30 pb-2">
+                      <span className="text-[10px] font-black text-amber-400 rpg-font-retro uppercase tracking-wider flex items-center gap-1.5">
+                        <Settings size={13} /> Panel Game Director
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { playSelect(); setGarticShowSettings(!garticShowSettings); }}
+                        className="px-3 py-1 bg-[#221c1a] hover:bg-stone-800 text-[9px] font-bold text-amber-200 rounded border border-amber-900/40 cursor-pointer"
+                      >
+                        {garticShowSettings ? 'Tutup Pengaturan' : 'Buka Pengaturan & Kata'}
+                      </button>
+                    </div>
+
+                    {/* Game Launch and Quick Actions */}
+                    <div className="flex flex-wrap items-center gap-3.5">
+                      <button
+                        type="button"
+                        onClick={() => { playClick(); startGarticGame(); }}
+                        disabled={garticState.status === 'active'}
+                        className="px-4 py-2 bg-gradient-to-b from-green-500 to-green-700 text-white border border-green-400 font-extrabold text-[10.5px] rounded active:scale-95 transition-all cursor-pointer shadow-md disabled:opacity-40 flex items-center gap-1.5 font-mono"
+                      >
+                        <Play size={12} /> MULAI GAME
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { playClick(); handleGarticRoundTimeout(garticState); }}
+                        disabled={garticState.status !== 'active'}
+                        className="px-3 py-2 bg-red-950 border border-red-800/60 text-red-300 font-bold text-[10px] rounded active:scale-95 transition-all cursor-pointer disabled:opacity-40"
+                      >
+                        LEWATKAN RONDE (FORCED)
+                      </button>
+                      {garticState.status !== 'idle' && (
+                        <button
+                          type="button"
+                          onClick={() => { playClick(); resetGarticGame(); }}
+                          className="px-3 py-2 bg-[#221c1a] hover:bg-stone-850 text-amber-500 border border-amber-900/40 font-bold text-[10px] rounded active:scale-95 transition-all cursor-pointer"
+                        >
+                          RESET GAME
+                        </button>
+                      )}
+                      <div className="text-[9.5px] text-stone-400 font-semibold">
+                        Status: <strong className="text-yellow-100">{
+                          garticState.status === 'active' ? 'Sedang Berjalan 🟢' : 'Idle ⚪'
+                        }</strong>
+                      </div>
+                    </div>
+
+                    {/* settings config block */}
+                    {garticShowSettings && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pt-3 border-t border-amber-900/30 animate-fade-in text-xs font-semibold">
+                        
+                        {/* Left Sub-column: Game Config Parameters */}
+                        <div className="flex flex-col gap-3 border-r border-amber-900/20 pr-4">
+                          <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest font-mono text-left">Konfigurasi Sesi</span>
+                          
+                          {/* Round Count */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-300">Total Ronde:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={garticState.totalRounds}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 3;
+                                const copy = { ...garticState, totalRounds: val };
+                                setGarticState(copy);
+                                saveGarticConfig(copy);
+                              }}
+                              className="w-16 bg-black text-yellow-100 px-2 py-1 rounded border border-amber-950 text-center font-mono font-bold focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Round Timer Duration */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-300">Timer Ronde (detik):</span>
+                            <input
+                              type="number"
+                              min="15"
+                              max="180"
+                              value={garticState.totalTimer}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 60;
+                                const copy = { ...garticState, totalTimer: val, timer: val };
+                                setGarticState(copy);
+                                saveGarticConfig(copy);
+                              }}
+                              className="w-16 bg-black text-yellow-100 px-2 py-1 rounded border border-amber-950 text-center font-mono font-bold focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Base Reward Coins */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-300">Base Reward Koin:</span>
+                            <input
+                              type="number"
+                              min="10"
+                              max="1000"
+                              value={garticState.baseReward}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 100;
+                                const copy = { ...garticState, baseReward: val };
+                                setGarticState(copy);
+                                saveGarticConfig(copy);
+                              }}
+                              className="w-16 bg-black text-yellow-100 px-2 py-1 rounded border border-amber-950 text-center font-mono font-bold focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Right Sub-column: Word Pool Management */}
+                        <div className="flex flex-col gap-2.5">
+                          <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest font-mono text-left">Daftar Kata Pool</span>
+                          
+                          {/* Add Word Form */}
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={newWordInput}
+                              onChange={(e) => setNewWordInput(e.target.value)}
+                              placeholder="Tambah kata baru..."
+                              className="flex-1 bg-black text-yellow-100 px-2 py-1 rounded border border-amber-900/40 text-[10px] focus:outline-none focus:border-amber-600 font-semibold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                playClick();
+                                const clean = newWordInput.trim().toLowerCase();
+                                if (!clean) return;
+                                if (garticState.words.some(w => w.text === clean)) return;
+                                const updatedWords = [...garticState.words, { id: Date.now().toString(), text: clean, enabled: true }];
+                                setNewWordInput('');
+                                const copy = { ...garticState, words: updatedWords };
+                                setGarticState(copy);
+                                saveGarticConfig(copy);
+                              }}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 text-[10px] font-black rounded cursor-pointer"
+                            >
+                              TAMBAH
+                            </button>
+                          </div>
+
+                          {/* Words list list */}
+                          <div className="max-h-[140px] overflow-y-auto space-y-1 pr-1 border border-amber-950 bg-black/20 p-2 rounded no-scrollbar">
+                            {garticState.words.map(w => (
+                              <div key={w.id} className="flex items-center justify-between bg-[#121212] p-1.5 rounded border border-stone-850 text-[10.5px]">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={w.enabled}
+                                    onChange={() => {
+                                      playSelect();
+                                      const updatedWords = garticState.words.map(item => item.id === w.id ? { ...item, enabled: !item.enabled } : item);
+                                      const copy = { ...garticState, words: updatedWords };
+                                      setGarticState(copy);
+                                      saveGarticConfig(copy);
+                                    }}
+                                    className="accent-amber-500 cursor-pointer animate-none"
+                                  />
+                                  <span className={`font-mono ${w.enabled ? 'text-yellow-100 font-bold' : 'text-stone-500 line-through'}`}>{w.text}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    playClick();
+                                    const updatedWords = garticState.words.filter(item => item.id !== w.id);
+                                    const copy = { ...garticState, words: updatedWords };
+                                    setGarticState(copy);
+                                    saveGarticConfig(copy);
+                                  }}
+                                  className="text-red-400 hover:text-red-500 p-0.5"
+                                  title="Hapus kata"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

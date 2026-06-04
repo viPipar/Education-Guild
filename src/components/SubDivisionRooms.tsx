@@ -6,6 +6,15 @@ import { ClipboardList, Plus, Check, Trash2 } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
 
+const ensureAbsoluteUrl = (url?: string): string => {
+  if (!url) return '#';
+  const trimmed = url.trim();
+  if (/^[a-z]+:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+};
+
 interface SubDivisionRoomsProps {
   currentProfile: Profile;
   profiles: Profile[];
@@ -32,8 +41,11 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
 
   // Local Discord URL State
   const [localDiscordUrl, setLocalDiscordUrl] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [showSavedFeedback, setShowSavedFeedback] = useState(false);
+
   useEffect(() => {
-    if (roomConfig?.discord_url !== undefined) {
+    if (roomConfig?.discord_url !== undefined && !isInputFocused) {
       setLocalDiscordUrl(roomConfig.discord_url);
     }
   }, [roomConfig?.discord_url, activeRoom]);
@@ -238,30 +250,17 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
     <div className="flex flex-col gap-4 p-2">
       
       {/* Room HUD controls (Discord + weather) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-slate-950/85 border border-[#cca566]/30 rounded">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-950/90 border-2 border-[#cca566]/40 rounded-lg shadow-xl shadow-black/50">
         <div className="flex items-center gap-3">
-          <span className="text-yellow-500 font-bold text-xs uppercase tracking-wide rpg-font-retro">
+          <span className="text-amber-500 font-extrabold text-sm uppercase tracking-wider rpg-font-retro">
             {activeRoom === 'carriage' ? 'Moving Carriage' : 'Rowing Boat'}
           </span>
-          <a
-            href={localDiscordUrl ? (localDiscordUrl.startsWith('http://') || localDiscordUrl.startsWith('https://') ? localDiscordUrl : 'https://' + localDiscordUrl) : '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => playSelect()}
-            className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition-all shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] border-2 border-purple-400/50 hover:scale-105"
-            title="Buka Portal Voice Channel"
-          >
-            <svg className="w-5 h-5 animate-spin" style={{ animationDuration: '4s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            <span className="text-[7px] font-extrabold tracking-wider mt-0.5 leading-none">PORTAL</span>
-          </a>
         </div>
 
         {currentProfile.role !== 'Staff' && (
-          <div className="flex items-center gap-4 flex-wrap text-[10px]">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2 border-r border-slate-800 pr-4">
-              <span className="font-bold text-[#cca566] uppercase">INTENSITAS CUACA:</span>
+              <span className="font-extrabold text-amber-100 uppercase tracking-wide text-xs rpg-font-retro">INTENSITAS:</span>
               <input
                 type="range"
                 min="0"
@@ -274,29 +273,67 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 }}
                 className="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-950 rounded-lg appearance-none"
               />
-              <span className="font-bold font-mono text-yellow-400">{roomConfig?.weather_intensity ?? 0}</span>
+              <span className="font-bold font-mono text-yellow-400 text-xs w-4">{roomConfig?.weather_intensity ?? 0}</span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-[#cca566] uppercase">PORTAL URL:</span>
+            <div className="flex items-center gap-2 border-r border-slate-800 pr-4">
+              <span className="font-extrabold text-amber-100 uppercase tracking-wide text-xs rpg-font-retro">FILTER CUACA:</span>
+              <input
+                type="range"
+                min="0"
+                max="3"
+                step="1"
+                value={roomConfig?.weather_filter ?? 0}
+                onChange={(e) => {
+                  if (onUpdateRoomConfig) {
+                    onUpdateRoomConfig(activeRoom, { weather_filter: parseInt(e.target.value) });
+                  }
+                }}
+                className="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-950 rounded-lg appearance-none"
+              />
+              <span className="font-bold font-mono text-yellow-400 text-[10px] w-20 leading-none">
+                {(() => {
+                  switch (roomConfig?.weather_filter ?? 0) {
+                    case 1: return 'Sore';
+                    case 2: return 'Malam';
+                    case 3: return 'Badai Petir';
+                    default: return 'Cerah';
+                  }
+                })()}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="font-extrabold text-amber-100 uppercase tracking-wide text-xs rpg-font-retro">PORTAL URL:</span>
               <input
                 type="text"
                 value={localDiscordUrl}
                 onChange={(e) => setLocalDiscordUrl(e.target.value)}
-                placeholder="https://discord.gg/..."
-                className="bg-black/60 text-yellow-100 border border-[#5a3d28] rounded px-2 py-1 w-52 text-[9px] font-semibold focus:outline-none focus:border-amber-500"
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                placeholder="Masukkan link dokumen (contoh: google.com)..."
+                className="bg-black/80 text-yellow-100 border border-amber-600/40 rounded px-3 py-1.5 w-72 text-xs font-semibold focus:outline-none focus:border-amber-500 placeholder:text-stone-600"
               />
-              <button
-                onClick={() => {
-                  playClick();
-                  if (onUpdateRoomConfig) {
-                    onUpdateRoomConfig(activeRoom, { discord_url: localDiscordUrl });
-                  }
-                }}
-                className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-[9px] rounded transition-colors"
-              >
-                SAVE
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    playClick();
+                    if (onUpdateRoomConfig) {
+                      onUpdateRoomConfig(activeRoom, { discord_url: localDiscordUrl });
+                      setShowSavedFeedback(true);
+                      setTimeout(() => setShowSavedFeedback(false), 3000);
+                    }
+                  }}
+                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-black text-xs rounded transition-all active:scale-95 shadow-md shadow-amber-900/30 cursor-pointer flex-shrink-0"
+                >
+                  SAVE
+                </button>
+                {showSavedFeedback && (
+                  <span className="text-green-400 font-bold text-xs rpg-font-retro animate-bounce flex-shrink-0">
+                    ✓ Tersimpan!
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -315,6 +352,73 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 {/* Weather Canvas Overlay */}
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
 
+                {/* Weather Filter Overlays */}
+                {roomConfig?.weather_filter === 1 && (
+                  <div className="absolute inset-0 bg-amber-600/15 pointer-events-none z-15 mix-blend-color-burn" />
+                )}
+                {roomConfig?.weather_filter === 2 && (
+                  <div className="absolute inset-0 bg-slate-950/50 pointer-events-none z-15 mix-blend-multiply" />
+                )}
+                {roomConfig?.weather_filter === 3 && (
+                  <>
+                    <div className="absolute inset-0 bg-slate-950/60 pointer-events-none z-15 mix-blend-multiply" />
+                    <div className="absolute inset-0 bg-white pointer-events-none z-25 mix-blend-overlay animate-lightning" />
+                  </>
+                )}
+
+                {/* FLOATING ACTION PORTALS */}
+                <div className="absolute top-3 right-3 flex items-center gap-3 z-30">
+                  {/* Discord Voice Button */}
+                  <div className="flex flex-col items-center gap-1 group">
+                    <a
+                      href="discord://discord.com/channels/1452630913908342906/1452630915942453269"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => playSelect()}
+                      className="w-11 h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] shadow-[0_0_10px_rgba(88,101,242,0.4)] hover:shadow-[0_0_15px_rgba(88,101,242,0.7)] flex items-center justify-center text-white border-2 border-white/20 transition-all hover:scale-105"
+                      title="Buka Discord Voice"
+                    >
+                      <svg className="w-5.5 h-5.5 fill-current" viewBox="0 0 127.14 96.36">
+                        <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36c2.65-3.6,5-7.46,7-11.52A68.66,68.66,0,0,1,28.68,79.3c.88-.65,1.76-1.32,2.6-2a75.52,75.52,0,0,0,71.72,0c.84.69,1.72,1.36,2.6,2a68.86,68.86,0,0,1-10.37,5.54c2,4.06,4.35,7.92,7,11.52A105.73,105.73,0,0,0,126.1,77.53C130.66,48,122.3,25.19,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" />
+                      </svg>
+                    </a>
+                    <span className="text-[7.5px] font-bold text-slate-300 bg-slate-950/90 px-1.5 py-0.5 rounded border border-slate-800/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity animate-none">
+                      DISCORD
+                    </span>
+                  </div>
+
+                  {/* Portal Button */}
+                  <div className="flex flex-col items-center gap-1 group">
+                    {roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? (
+                      <a
+                        href={ensureAbsoluteUrl(roomConfig.discord_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => playSelect()}
+                        className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] flex items-center justify-center text-white border-2 border-purple-400/50 transition-all hover:scale-105 animate-[pulse_2.5s_infinite]"
+                        title="Buka Portal Dokumen/Link"
+                      >
+                        <svg className="w-5.5 h-5.5 animate-spin" style={{ animationDuration: '6s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="w-11 h-11 rounded-full bg-stone-700/85 text-stone-500 border-2 border-stone-600/50 flex items-center justify-center cursor-not-allowed opacity-90 transition-all"
+                        title="Portal belum disetting (Kosong)"
+                      >
+                        <svg className="w-5.5 h-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </button>
+                    )}
+                    <span className={`text-[7.5px] font-bold bg-slate-950/90 px-1.5 py-0.5 rounded border pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity ${roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? 'text-purple-300 border-purple-900/40' : 'text-stone-400 border-stone-800/40'}`}>
+                      PORTAL
+                    </span>
+                  </div>
+                </div>
+
               {/* CARRIAGE FRAME (With shake animation and wheels offset) */}
               <div
                 style={{
@@ -329,7 +433,10 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 
                 {/* NOTICE BOARD OVERLAY (Bulletin board on top-right wall) */}
                 <div
-                  onClick={() => setShowWhiteboard(true)}
+                  onClick={() => {
+                    setShowWhiteboard(true);
+                    handleSeatClick({ id: 'carriage_seat_notice', room_id: 'carriage', user_id: null, x: 0, y: 0 });
+                  }}
                   style={{ left: '60.5%', top: '20.5%', width: '8%', height: '11%' }}
                   className="absolute cursor-pointer border border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-30 group"
                   title="Notice Board"
@@ -356,6 +463,9 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 {/* Render Seats over the layout */}
                 {seats.map((seat) => {
                   const occupant = profiles.find(p => p.id === seat.user_id);
+                  if (!occupant && seat.id.includes('notice')) {
+                    return null;
+                  }
                   return (
                     <div
                       key={seat.id}
@@ -421,6 +531,73 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
               <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded sea-waves-scroll min-w-[750px] lg:min-w-0">
                 {/* Weather Canvas Overlay */}
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
+
+                {/* Weather Filter Overlays */}
+                {roomConfig?.weather_filter === 1 && (
+                  <div className="absolute inset-0 bg-amber-600/15 pointer-events-none z-15 mix-blend-color-burn" />
+                )}
+                {roomConfig?.weather_filter === 2 && (
+                  <div className="absolute inset-0 bg-slate-950/50 pointer-events-none z-15 mix-blend-multiply" />
+                )}
+                {roomConfig?.weather_filter === 3 && (
+                  <>
+                    <div className="absolute inset-0 bg-slate-950/60 pointer-events-none z-15 mix-blend-multiply" />
+                    <div className="absolute inset-0 bg-white pointer-events-none z-25 mix-blend-overlay animate-lightning" />
+                  </>
+                )}
+
+                {/* FLOATING ACTION PORTALS */}
+                <div className="absolute top-3 right-3 flex items-center gap-3 z-30">
+                  {/* Discord Voice Button */}
+                  <div className="flex flex-col items-center gap-1 group">
+                    <a
+                      href="discord://discord.com/channels/1452630913908342906/1452630915942453270"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => playSelect()}
+                      className="w-11 h-11 rounded-full bg-[#5865F2] hover:bg-[#4752C4] shadow-[0_0_10px_rgba(88,101,242,0.4)] hover:shadow-[0_0_15px_rgba(88,101,242,0.7)] flex items-center justify-center text-white border-2 border-white/20 transition-all hover:scale-105"
+                      title="Buka Discord Voice"
+                    >
+                      <svg className="w-5.5 h-5.5 fill-current" viewBox="0 0 127.14 96.36">
+                        <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36c2.65-3.6,5-7.46,7-11.52A68.66,68.66,0,0,1,28.68,79.3c.88-.65,1.76-1.32,2.6-2a75.52,75.52,0,0,0,71.72,0c.84.69,1.72,1.36,2.6,2a68.86,68.86,0,0,1-10.37,5.54c2,4.06,4.35,7.92,7,11.52A105.73,105.73,0,0,0,126.1,77.53C130.66,48,122.3,25.19,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" />
+                      </svg>
+                    </a>
+                    <span className="text-[7.5px] font-bold text-slate-300 bg-slate-950/90 px-1.5 py-0.5 rounded border border-slate-800/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity animate-none">
+                      DISCORD
+                    </span>
+                  </div>
+
+                  {/* Portal Button */}
+                  <div className="flex flex-col items-center gap-1 group">
+                    {roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? (
+                      <a
+                        href={ensureAbsoluteUrl(roomConfig.discord_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => playSelect()}
+                        className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-[0_0_12px_rgba(147,51,234,0.6)] hover:shadow-[0_0_18px_rgba(147,51,234,0.9)] flex items-center justify-center text-white border-2 border-purple-400/50 transition-all hover:scale-105 animate-[pulse_2.5s_infinite]"
+                        title="Buka Portal Dokumen/Link"
+                      >
+                        <svg className="w-5.5 h-5.5 animate-spin" style={{ animationDuration: '6s' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="w-11 h-11 rounded-full bg-stone-700/85 text-stone-500 border-2 border-stone-600/50 flex items-center justify-center cursor-not-allowed opacity-90 transition-all"
+                        title="Portal belum disetting (Kosong)"
+                      >
+                        <svg className="w-5.5 h-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.657 10.657l.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </button>
+                    )}
+                    <span className={`text-[7.5px] font-bold bg-slate-950/90 px-1.5 py-0.5 rounded border pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity ${roomConfig?.discord_url && roomConfig.discord_url.trim() !== '' ? 'text-purple-300 border-purple-900/40' : 'text-stone-400 border-stone-800/40'}`}>
+                      PORTAL
+                    </span>
+                  </div>
+                </div>
               
               {/* Parallax Clouds & Water waves */}
               <div className="clouds"></div>
@@ -440,7 +617,10 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 
                 {/* NOTICE BOARD (Map Table overlay over background) */}
                 <div
-                  onClick={() => setShowWhiteboard(true)}
+                  onClick={() => {
+                    setShowWhiteboard(true);
+                    handleSeatClick({ id: 'boat_seat_notice', room_id: 'boat', user_id: null, x: 0, y: 0 });
+                  }}
                   style={{ left: '46.5%', top: '57%', width: '6.5%', height: '8%' }}
                   className="absolute cursor-pointer border-2 border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-30 group"
                   title="Notice Board"
@@ -467,6 +647,9 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 {/* Render Seats */}
                 {seats.map((seat) => {
                   const occupant = profiles.find(p => p.id === seat.user_id);
+                  if (!occupant && seat.id.includes('notice')) {
+                    return null;
+                  }
                   return (
                     <div
                       key={seat.id}

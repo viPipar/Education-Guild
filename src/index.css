@@ -560,3 +560,14 @@ body {
   animation: fadeIn 0.3s ease-out forwards;
 }
 
+/* Custom Weather Lightning Flash animation */
+@keyframes lightning-flash {
+  0%, 94%, 96%, 98%, 100% { opacity: 0; }
+  95%, 97% { opacity: 0.9; }
+}
+
+.animate-lightning {
+  animation: lightning-flash 8s infinite;
+}
+
+

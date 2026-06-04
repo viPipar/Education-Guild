@@ -52,6 +52,7 @@ export interface RoomConfig {
   room_id: string;
   weather_intensity: number;
   discord_url: string;
+  weather_filter?: number; // 0: Cerah, 1: Sore, 2: Malam, 3: Badai Petir
 }
 
 export interface Assessment {
@@ -317,11 +318,17 @@ if (isMock) {
 // Broadcast Channel for Multi-tab sync
 const bc = new BroadcastChannel('rpg_org_realtime');
 
+// Client Tab ID to prevent echoing messages to ourselves
+const clientTabId = Math.random().toString(36).substring(2, 15);
+
 // Setup Supabase Realtime Channel if database connection is real (not mock)
 let supabaseChannel: any = null;
 const subscribers = new Set<(msg: { type: string; payload: any }) => void>();
 
 bc.addEventListener('message', (e: MessageEvent) => {
+  if (e.data && e.data.payload && e.data.payload._senderTabId === clientTabId) {
+    return;
+  }
   subscribers.forEach(cb => {
     try { cb(e.data); } catch (err) { console.error('Error in BroadcastChannel subscriber callback:', err); }
   });
@@ -331,6 +338,9 @@ if (!isMock && supabase) {
   supabaseChannel = supabase.channel('rpg_org_global_realtime');
   supabaseChannel
     .on('broadcast', { event: '*' }, (msg: any) => {
+      if (msg.payload && msg.payload._senderTabId === clientTabId) {
+        return;
+      }
       subscribers.forEach(cb => {
         try { cb({ type: msg.event, payload: msg.payload }); } catch (err) { console.error('Error in Supabase Realtime subscriber callback:', err); }
       });
@@ -377,15 +387,30 @@ export const db = {
 
   getSeatsSync(roomId: string, profiles: Profile[]): Seat[] {
     let count = 22;
-    if (roomId === 'guild_hall') count = 20;
-    else if (roomId === 'carriage' || roomId === 'boat') count = 12;
-    else if (roomId === 'tavern') count = 26;
+    if (roomId === 'guild_hall') count = 22;
+    else if (roomId === 'carriage' || roomId === 'boat') count = 13;
+    else if (roomId === 'tavern') count = 31;
     else if (roomId === 'wilderness') count = 20;
     else if (roomId === 'header') count = 5;
 
     return Array.from({ length: count }, (_, i) => {
-      // Find who sits here
-      const seatId = `${roomId}_seat_${i + 1}`;
+      // Find seatId
+      let seatId = `${roomId}_seat_${i + 1}`;
+      if (roomId === 'guild_hall') {
+        if (i === 20) seatId = 'guild_hall_seat_notice';
+        else if (i === 21) seatId = 'guild_hall_seat_scroll';
+      } else if (roomId === 'carriage') {
+        if (i === 12) seatId = 'carriage_seat_notice';
+      } else if (roomId === 'boat') {
+        if (i === 12) seatId = 'boat_seat_notice';
+      } else if (roomId === 'tavern') {
+        if (i === 26) seatId = 'tavern_seat_gartic';
+        else if (i === 27) seatId = 'tavern_seat_ttt';
+        else if (i === 28) seatId = 'tavern_seat_chess';
+        else if (i === 29) seatId = 'tavern_seat_gacha';
+        else if (i === 30) seatId = 'tavern_seat_kasir';
+      }
+
       const occupant = profiles.find(p => p.current_seat_id === seatId);
       
       // Coordinate logic for rendering layout
@@ -422,9 +447,15 @@ export const db = {
           { x: 17.0, y: 44 },
           { x: 24.0, y: 34 }
         ];
-        const coord = guildHallCoordinates[i] || { x: 50, y: 50 };
-        x = coord.x;
-        y = coord.y;
+        if (i === 20) {
+          x = 10; y = 15;
+        } else if (i === 21) {
+          x = 50; y = 16;
+        } else {
+          const coord = guildHallCoordinates[i] || { x: 50, y: 50 };
+          x = coord.x;
+          y = coord.y;
+        }
       } else if (roomId === 'carriage') {
         // Pre-defined coordinates to perfectly align with the new horizontal carriage.png image
         // 12 seats inside and outside the carriage
@@ -442,9 +473,13 @@ export const db = {
           { x: 67.0, y: 33 }, // 11. Cargo chest (outside right top)
           { x: 73.0, y: 47 }  // 12. Entry platform/stairs (outside right middle)
         ];
-        const coord = carriageCoordinates[i] || { x: 50, y: 50 };
-        x = coord.x;
-        y = coord.y;
+        if (i === 12) {
+          x = 58.5; y = 31;
+        } else {
+          const coord = carriageCoordinates[i] || { x: 50, y: 50 };
+          x = coord.x;
+          y = coord.y;
+        }
       } else if (roomId === 'boat') {
         // Pre-defined coordinates to perfectly align with the new horizontal boat.png image
         // 12 seats: 10 on main deck (2 rows of 5), 2 on raised captain's deck
@@ -465,9 +500,13 @@ export const db = {
           { x: 90, y: 52 }, // standing near helm / top of stairs
           { x: 93, y: 66 }  // at captain's desk chair
         ];
-        const coord = boatCoordinates[i] || { x: 50, y: 50 };
-        x = coord.x;
-        y = coord.y;
+        if (i === 12) {
+          x = 42.5; y = 63;
+        } else {
+          const coord = boatCoordinates[i] || { x: 50, y: 50 };
+          x = coord.x;
+          y = coord.y;
+        }
       } else if (roomId === 'wilderness') {
         // 20 seats in an upward-opening semicircle (bottom half, facing boss above)
         // arc goes left→top-center→right, y decreases at apex
@@ -475,7 +514,17 @@ export const db = {
         x = Math.round(50 + Math.cos(angle) * 40);
         y = Math.round(75 - Math.sin(angle) * 28);
       } else if (roomId === 'tavern') {
-        if (i < 10) {
+        if (i === 26) {
+          x = 73; y = 59;
+        } else if (i === 27) {
+          x = 15; y = 59;
+        } else if (i === 28) {
+          x = 47; y = 59;
+        } else if (i === 29) {
+          x = 86; y = 32;
+        } else if (i === 30) {
+          x = 58; y = 32;
+        } else if (i < 10) {
           // 10 seats in top-left (around top-left cozy area)
           const angle = (i / 10) * Math.PI * 2;
           x = Math.round(24 + Math.cos(angle) * 14);
@@ -1520,10 +1569,10 @@ export const db = {
 
   async getRoomConfigs(): Promise<RoomConfig[]> {
     const defaultConfigs: RoomConfig[] = [
-      { room_id: 'guild_hall', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68' },
-      { room_id: 'carriage', weather_intensity: 2, discord_url: 'https://discord.gg/CX5KjcGMyP' },
-      { room_id: 'boat', weather_intensity: 2, discord_url: 'https://discord.gg/QaB82GYhmy' },
-      { room_id: 'tavern', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68' }
+      { room_id: 'guild_hall', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68', weather_filter: 0 },
+      { room_id: 'carriage', weather_intensity: 2, discord_url: 'https://discord.gg/CX5KjcGMyP', weather_filter: 0 },
+      { room_id: 'boat', weather_intensity: 2, discord_url: 'https://discord.gg/QaB82GYhmy', weather_filter: 0 },
+      { room_id: 'tavern', weather_intensity: 0, discord_url: 'https://discord.gg/jY5CMZrN68', weather_filter: 0 }
     ];
 
     if (!isMock && supabase) {
@@ -1578,17 +1627,21 @@ export const db = {
   },
 
   broadcast(type: string, payload: any) {
-    bc.postMessage({ type, payload });
+    const wrappedPayload = (payload && typeof payload === 'object')
+      ? { ...payload, _senderTabId: clientTabId }
+      : payload;
+
+    bc.postMessage({ type, payload: wrappedPayload });
     if (supabaseChannel) {
       supabaseChannel.send({
         type: 'broadcast',
         event: type,
-        payload: payload
+        payload: wrappedPayload
       });
     }
     // Also trigger for our own tab/window immediately
     subscribers.forEach(cb => {
-      try { cb({ type, payload }); } catch (err) { console.error('Error in local subscriber callback:', err); }
+      try { cb({ type, payload: wrappedPayload }); } catch (err) { console.error('Error in local subscriber callback:', err); }
     });
   },
 
