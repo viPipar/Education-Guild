@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import type { Profile, RpgAsset } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Shield, Sparkles, Smile, Award, LogIn, Package } from 'lucide-react';
+import { HouseClicker } from './HouseClicker';
+import { Shield, Sparkles, Smile, LogIn, Package } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
 
@@ -306,7 +307,7 @@ export const House: React.FC<HouseProps> = ({
   return (
     <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
 
-      {/* Assets loading state — show spinner overlay on character panel only */}
+      {/* Assets loading state */}
       {!assetsLoaded && (
         <div className="rpg-panel-stone p-4 text-center text-xs text-slate-400 font-bold animate-pulse">
           ⚔️ Memuat daftar karakter dari guild...
@@ -472,52 +473,8 @@ export const House: React.FC<HouseProps> = ({
         {/* Left Column: Cozy Room View & Status Text */}
         <div className="flex flex-col gap-4">
           
-          {/* Room Frame */}
-          <div className="rpg-panel-stone h-[260px] relative overflow-hidden flex flex-col justify-between" style={{
-            background: 'linear-gradient(to bottom, #2b1f1a 0%, #17110e 100%)',
-            backgroundImage: 'radial-gradient(#4e3629 1px, transparent 1px)',
-            backgroundSize: '16px 16px'
-          }}>
-            <div className="rpg-plaque absolute top-3 left-3 text-[9px]">
-              COZY ROOM
-            </div>
-
-            <div className="absolute top-8 right-8 w-16 h-12 border-2 border-[#5a3d28] bg-cyan-950/60 rounded flex items-center justify-center shadow-inner">
-              <div className="w-[1px] h-full bg-[#5a3d28]"></div>
-              <div className="h-[1px] w-full bg-[#5a3d28] absolute"></div>
-              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-cyan-400/20 to-transparent pointer-events-none"></div>
-            </div>
-
-            <div className="absolute top-12 left-6 w-20 h-10 bg-red-950 border border-red-900 rounded-s-sm flex items-center justify-end">
-              <div className="w-6 h-full bg-amber-100 rounded-s-xs border-r border-red-950"></div>
-            </div>
-
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-32 h-16 bg-[#3a2215]/80 rounded-full border border-[#5a3d28]/30 -z-10"></div>
-
-            <div className="flex-1 flex flex-col items-center justify-center z-10 mt-6">
-              <SpriteRenderer
-                base={currentProfile.sprite_json.base}
-                hair={currentProfile.sprite_json.hair}
-                outfit={currentProfile.sprite_json.outfit}
-                accessory={currentProfile.sprite_json.accessory}
-                petId={currentProfile.pet_id}
-                size={80}
-              />
-              {currentProfile.current_status && (
-                <div className="mt-2 bg-[#fdf6e2] text-stone-900 border-2 border-[#5a3d28] px-3 py-0.5 rounded text-[9px] font-bold shadow-md max-w-[180px] text-center relative">
-                  {currentProfile.current_status}
-                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#fdf6e2] border-t-2 border-l-2 border-[#5a3d28] rotate-45"></div>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-[#cca566]/20 bg-black/40 p-2 flex justify-between items-center text-[9px]">
-              <span className="text-slate-400 font-semibold">ROLE:</span>
-              <span className="text-[#ffd700] font-bold flex items-center gap-1 font-mono uppercase">
-                <Award size={12} /> {currentProfile.role}
-              </span>
-            </div>
-          </div>
+          {/* Room Frame - Cozy Room Clicker Template */}
+          <HouseClicker key={currentProfile.id} currentProfile={currentProfile} />
 
           {/* Status text update */}
           <form onSubmit={handleStatusSubmit} className="rpg-panel-wood">
@@ -653,6 +610,8 @@ export const House: React.FC<HouseProps> = ({
         </div>
 
       </div>
+
+
 
     </div>
   );

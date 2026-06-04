@@ -101,6 +101,13 @@ body {
   animation: ocean-scroll 25s linear infinite;
 }
 
+.snow-forest-scroll {
+  background-image: url('/assets/rooms/snow_bg.jpg');
+  background-size: 1024px 100%;
+  background-repeat: repeat-x;
+  animation: ocean-scroll 20s linear infinite;
+}
+
 @keyframes cloud-move {
   0% { background-position-x: 0; }
   100% { background-position-x: -500px; }
@@ -535,5 +542,21 @@ body {
   100% {
     transform: translateX(-100%);
   }
+}
+
+/* ── HouseClicker Animations ────────────────────────── */
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: 0.85; transform: translateY(-28px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-52px) scale(0.9); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.9) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
 }
 

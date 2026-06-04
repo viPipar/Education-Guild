@@ -13,6 +13,7 @@ interface TavernProps {
   profiles: Profile[];
   onRefreshProfiles: () => void;
   onUpdateProfile: (updates: Partial<Profile>) => void;
+  onSeatClick?: (seatId: string, isLeave: boolean) => void;
 }
 
 interface TicTacToeState {
@@ -52,6 +53,7 @@ export const Tavern: React.FC<TavernProps> = ({
   profiles,
   onRefreshProfiles,
   onUpdateProfile,
+  onSeatClick,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('tavern', profiles), [profiles]);
   
@@ -199,9 +201,7 @@ export const Tavern: React.FC<TavernProps> = ({
     });
 
     const unsubscribe = db.subscribe((msg) => {
-      if (msg.type === 'profile_update' || msg.type === 'seat_claim' || msg.type === 'seat_leave') {
-        onRefreshProfiles();
-      } else if (msg.type === 'chat_bubble') {
+      if (msg.type === 'chat_bubble') {
         triggerBubble(msg.payload.userId, msg.payload.text);
       } else if (msg.type === 'tictactoe_sync') {
         const payloadData = msg.payload;
@@ -284,12 +284,17 @@ export const Tavern: React.FC<TavernProps> = ({
 
   const handleSeatClick = async (seat: Seat) => {
     playSelect();
-    if (seat.user_id === currentProfile.id) {
-      await db.leaveSeat(currentProfile.id);
+    const isLeave = seat.user_id === currentProfile.id;
+    if (onSeatClick) {
+      onSeatClick(seat.id, isLeave);
     } else {
-      await db.claimSeat('tavern', seat.id, currentProfile.id);
+      if (isLeave) {
+        await db.leaveSeat(currentProfile.id);
+      } else {
+        await db.claimSeat('tavern', seat.id, currentProfile.id);
+      }
+      onRefreshProfiles();
     }
-    onRefreshProfiles();
   };
 
   const handleSendChat = (e: React.FormEvent) => {

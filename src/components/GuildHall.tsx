@@ -12,6 +12,7 @@ interface GuildHallProps {
   onRefreshProfiles: () => void;
   broadcastTicker: string;
   onSetTicker: (text: string) => void;
+  onSeatClick?: (seatId: string, isLeave: boolean) => void;
 }
 
 export const GuildHall: React.FC<GuildHallProps> = ({
@@ -19,7 +20,8 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   profiles,
   onRefreshProfiles,
   broadcastTicker,
-  onSetTicker
+  onSetTicker,
+  onSeatClick,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('guild_hall', profiles), [profiles]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -59,9 +61,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
 
     // Listen to real-time broadcasts
     const unsubscribe = db.subscribe((msg) => {
-      if (msg.type === 'seat_claim' || msg.type === 'seat_leave' || msg.type === 'profile_update') {
-        onRefreshProfiles();
-      } else if (msg.type === 'checklist_update' && msg.payload.roomId === 'guild_hall') {
+      if (msg.type === 'checklist_update' && msg.payload.roomId === 'guild_hall') {
         db.getChecklist('guild_hall').then(setChecklist);
       } else if (msg.type === 'chat_bubble') {
         triggerBubble(msg.payload.userId, msg.payload.text);
@@ -106,14 +106,17 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   // Handle Teleport (Claim Seat)
   const handleSeatClick = async (seat: Seat) => {
     playSelect();
-    if (seat.user_id === currentProfile.id) {
-      // Leave seat if clicked own seat
-      await db.leaveSeat(currentProfile.id);
+    const isLeave = seat.user_id === currentProfile.id;
+    if (onSeatClick) {
+      onSeatClick(seat.id, isLeave);
     } else {
-      // Claim seat
-      await db.claimSeat('guild_hall', seat.id, currentProfile.id);
+      if (isLeave) {
+        await db.leaveSeat(currentProfile.id);
+      } else {
+        await db.claimSeat('guild_hall', seat.id, currentProfile.id);
+      }
+      onRefreshProfiles();
     }
-    onRefreshProfiles();
   };
 
   const handleBroadcastSummon = () => {

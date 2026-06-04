@@ -11,13 +11,15 @@ interface SubDivisionRoomsProps {
   profiles: Profile[];
   onRefreshProfiles: () => void;
   activeRoom: 'carriage' | 'boat';
+  onSeatClick?: (seatId: string, isLeave: boolean) => void;
 }
 
 export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   currentProfile,
   profiles,
   onRefreshProfiles,
-  activeRoom
+  activeRoom,
+  onSeatClick,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync(activeRoom, profiles), [profiles, activeRoom]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -37,9 +39,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
     loadRoomData();
 
     const unsubscribe = db.subscribe((msg) => {
-      if (msg.type === 'seat_claim' || msg.type === 'seat_leave' || msg.type === 'profile_update') {
-        onRefreshProfiles();
-      } else if (msg.type === 'checklist_update' && msg.payload.roomId === activeRoom) {
+      if (msg.type === 'checklist_update' && msg.payload.roomId === activeRoom) {
         db.getChecklist(activeRoom).then(setChecklist);
       } else if (msg.type === 'chat_bubble') {
         triggerBubble(msg.payload.userId, msg.payload.text);
@@ -51,12 +51,17 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
 
   const handleSeatClick = async (seat: Seat) => {
     playSelect();
-    if (seat.user_id === currentProfile.id) {
-      await db.leaveSeat(currentProfile.id);
+    const isLeave = seat.user_id === currentProfile.id;
+    if (onSeatClick) {
+      onSeatClick(seat.id, isLeave);
     } else {
-      await db.claimSeat(activeRoom, seat.id, currentProfile.id);
+      if (isLeave) {
+        await db.leaveSeat(currentProfile.id);
+      } else {
+        await db.claimSeat(activeRoom, seat.id, currentProfile.id);
+      }
+      onRefreshProfiles();
     }
-    onRefreshProfiles();
   };
 
   const handleAddChecklist = async (e: React.FormEvent) => {
@@ -119,48 +124,44 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           {/* CARRIAGE VIEW */}
           {activeRoom === 'carriage' && (
             <div className="map-scroll-container">
-              <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded bg-[#3e2723] flex items-center justify-center min-w-[750px] lg:min-w-0" style={{
-                backgroundImage: 'linear-gradient(to bottom, #110d0c, #261917)',
-              }}>
-              
-              {/* Parallax Ground & Moving Lines to simulate speed */}
-              <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-around">
-                <div className="w-[200%] h-0.5 bg-yellow-600/30 animate-[wave-move_4s_linear_infinite]"></div>
-                <div className="w-[200%] h-0.5 bg-yellow-600/30 animate-[wave-move_6s_linear_infinite_reverse]"></div>
-                <div className="w-[200%] h-0.5 bg-yellow-600/30 animate-[wave-move_5s_linear_infinite]"></div>
-              </div>
+              <div className="rpg-panel border-4 h-[500px] relative overflow-hidden rounded snow-forest-scroll min-w-[750px] lg:min-w-0 flex items-center justify-center">
 
-              {/* CARRIAGE FRAME (With shake animation) */}
-              <div className="w-[85%] h-[80%] bg-[#5d4037] border-4 border-[#8d6e63] rounded-xl relative shadow-2xl flex items-center justify-center animate-[carriage-shake_0.8s_ease-in-out_infinite] z-10">
+              {/* CARRIAGE FRAME (With shake animation and wheels offset) */}
+              <div
+                style={{
+                  backgroundImage: 'url(/assets/rooms/carriage.png)',
+                  backgroundSize: '100% 100%',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                  aspectRatio: '669 / 373'
+                }}
+                className="w-[88%] max-w-[850px] relative flex items-center justify-center animate-[carriage-shake_0.8s_ease-in-out_infinite] mx-auto translate-y-[30px] z-10"
+              >
                 
-                {/* Carriage Windows */}
-                <div className="absolute top-4 left-6 w-24 h-10 border border-amber-600/30 bg-cyan-950/60 rounded"></div>
-                <div className="absolute top-4 right-6 w-24 h-10 border border-amber-600/30 bg-cyan-950/60 rounded"></div>
-
-                {/* NOTICE BOARD (NoticeBoard anchor) */}
+                {/* NOTICE BOARD OVERLAY (Bulletin board on top-right wall) */}
                 <div
                   onClick={() => setShowWhiteboard(true)}
-                  className="absolute top-[8%] left-[22%] w-24 h-10 bg-[#5c4033] border-2 border-[#8d6e63] rounded shadow-lg cursor-pointer flex items-center justify-center hover:scale-105 transition-transform hover:border-amber-400 z-30 group"
+                  style={{ left: '60.5%', top: '20.5%', width: '8%', height: '11%' }}
+                  className="absolute cursor-pointer border border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-30 group"
+                  title="Notice Board"
                 >
-                  <div className="bg-[#fcf8e3] w-[90%] h-[75%] rounded border border-black flex items-center justify-center">
-                    <span className="text-[7.5px] font-bold text-slate-800 font-serif">NOTICE BOARD</span>
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-950/90 text-[8px] text-amber-400 border border-amber-500/50 px-1.5 py-0.5 rounded whitespace-nowrap z-50 pointer-events-none font-bold">
+                    NOTICE BOARD
                   </div>
                 </div>
 
-                {/* Walkway in Middle */}
-                <div className="absolute inset-x-0 top-[40%] bottom-[40%] bg-[#3e2723] border-y border-[#261614] opacity-80 z-0"></div>
-
-                {/* Left Row Benches (academic side) */}
-                <div className="absolute left-[8%] inset-y-[20%] w-[15%] bg-[#4e342e] rounded border border-[#2e1d1a] z-10 shadow-lg"></div>
-                {/* Right Row Benches (pub side) */}
-                <div className="absolute right-[8%] inset-y-[20%] w-[15%] bg-[#4e342e] rounded border border-[#2e1d1a] z-10 shadow-lg"></div>
-
-                {/* Guest Seats (BPH / Visitors at the end) */}
-                <div className="absolute top-[8%] left-[43%] w-[14%] h-[12%] bg-[#be9c7b]/20 border border-[#be9c7b]/30 rounded text-[8px] flex items-center justify-center text-[#be9c7b] z-10">
-                  TAMU 1
+                {/* Direction Labels */}
+                <div 
+                  style={{ left: '26%', top: '38%' }}
+                  className="absolute transform -translate-x-1/2 bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] px-1.5 py-0.5 flex items-center justify-center text-[#ddb892] font-bold z-10"
+                >
+                  FRONT
                 </div>
-                <div className="absolute bottom-[8%] left-[43%] w-[14%] h-[12%] bg-[#be9c7b]/20 border border-[#be9c7b]/30 rounded text-[8px] flex items-center justify-center text-[#be9c7b] z-10">
-                  TAMU 2
+                <div 
+                  style={{ left: '73%', top: '38%' }}
+                  className="absolute transform -translate-x-1/2 bg-[#ddb892]/20 border border-[#ddb892]/30 rounded text-[7px] px-1.5 py-0.5 flex items-center justify-center text-[#ddb892] font-bold z-10"
+                >
+                  REAR
                 </div>
 
                 {/* Render Seats over the layout */}

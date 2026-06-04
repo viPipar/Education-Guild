@@ -81,6 +81,15 @@ function App() {
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
       if (msg.type === 'profile_update' || msg.type === 'seat_claim' || msg.type === 'seat_leave') {
+        // Ignore updates initiated by ourselves to prevent race conditions and redundant network requests
+        if (currentProfile) {
+          if (msg.type === 'profile_update' && msg.payload.id === currentProfile.id) {
+            return;
+          }
+          if ((msg.type === 'seat_claim' || msg.type === 'seat_leave') && msg.payload.userId === currentProfile.id) {
+            return;
+          }
+        }
         refreshProfiles();
       } else if (msg.type === 'ticker_update') {
         setBroadcastTicker(msg.payload.text);
@@ -214,20 +223,51 @@ function App() {
     return Math.min(100, Math.max(10, (level * 10) % 100 || 80));
   };
 
+  // Unified Seat Click Optimistic Handler
+  const handleSeatClick = async (roomId: string, seatId: string, userId: string, isLeave = false) => {
+    // 1. Optimistic Update (instant UI feedback)
+    setProfiles(prev => prev.map(p => {
+      if (p.id === userId) {
+        return { ...p, current_seat_id: isLeave ? null : seatId };
+      }
+      if (!isLeave && p.current_seat_id === seatId) {
+        return { ...p, current_seat_id: null };
+      }
+      return p;
+    }));
+    
+    if (currentProfile && currentProfile.id === userId) {
+      setCurrentProfile(prev => prev ? { ...prev, current_seat_id: isLeave ? null : seatId } : null);
+    }
+
+    // 2. Perform DB update (background)
+    try {
+      let success = false;
+      if (isLeave) {
+        success = await db.leaveSeat(userId);
+      } else {
+        success = await db.claimSeat(roomId, seatId, userId);
+      }
+
+      // If the DB update failed (e.g. seat occupied by someone else), revert optimistic update
+      if (!success) {
+        console.warn("Seat claim/leave failed in database, reverting state...");
+        refreshProfiles();
+      }
+    } catch (err) {
+      console.error("Failed to update seat in DB, reverting...", err);
+      refreshProfiles();
+    }
+  };
+
   // Claim or leave a header seat
-  const handleHeaderSeatClick = async (seatId: string, isLocked: boolean, occupant: Profile | null) => {
+  const handleHeaderSeatClick = (seatId: string, isLocked: boolean, occupant: Profile | null) => {
     if (isLocked) return;
     if (!currentProfile) return;
     playSelect();
 
-    if (occupant) {
-      if (occupant.id === currentProfile.id) {
-        await db.leaveSeat(currentProfile.id);
-      }
-    } else {
-      await db.claimSeat('header', seatId, currentProfile.id);
-    }
-    refreshProfiles();
+    const isLeave = occupant ? occupant.id === currentProfile.id : false;
+    handleSeatClick('header', seatId, currentProfile.id, isLeave);
   };
 
   // Toggle lock status (Director Only)
@@ -571,6 +611,7 @@ function App() {
                     onRefreshProfiles={refreshProfiles}
                     broadcastTicker={broadcastTicker}
                     onSetTicker={handleSetTicker}
+                    onSeatClick={(seatId, isLeave) => handleSeatClick('guild_hall', seatId, currentProfile.id, isLeave)}
                   />
                 )}
                  {activeTab === 'carriage' && (
@@ -579,6 +620,7 @@ function App() {
                     currentProfile={currentProfile}
                     profiles={profiles}
                     onRefreshProfiles={refreshProfiles}
+                    onSeatClick={(seatId, isLeave) => handleSeatClick('carriage', seatId, currentProfile.id, isLeave)}
                   />
                 )}
                 {activeTab === 'boat' && (
@@ -587,6 +629,7 @@ function App() {
                     currentProfile={currentProfile}
                     profiles={profiles}
                     onRefreshProfiles={refreshProfiles}
+                    onSeatClick={(seatId, isLeave) => handleSeatClick('boat', seatId, currentProfile.id, isLeave)}
                   />
                 )}
                 {activeTab === 'tavern' && (
@@ -595,6 +638,7 @@ function App() {
                     profiles={profiles}
                     onRefreshProfiles={refreshProfiles}
                     onUpdateProfile={handleUpdateProfile}
+                    onSeatClick={(seatId, isLeave) => handleSeatClick('tavern', seatId, currentProfile.id, isLeave)}
                   />
                 )}
                 {activeTab === 'library' && (
@@ -619,6 +663,7 @@ function App() {
                     currentProfile={currentProfile}
                     profiles={profiles}
                     onUpdateProfile={handleUpdateProfile}
+                    onSeatClick={(seatId, isLeave) => handleSeatClick('wilderness', seatId, currentProfile.id, isLeave)}
                   />
                 )}
                 {activeTab === 'asset_chamber' && currentProfile.role === 'Director' && (

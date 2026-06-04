@@ -420,11 +420,25 @@ export const db = {
         x = coord.x;
         y = coord.y;
       } else if (roomId === 'carriage') {
-        // Two facing rows (x: 30% and 70%) with a walkway in the middle
-        const row = i % 2;
-        const index = Math.floor(i / 2);
-        x = row === 0 ? 25 : 75;
-        y = 20 + index * 13;
+        // Pre-defined coordinates to perfectly align with the new horizontal carriage.png image
+        // 12 seats inside and outside the carriage
+        const carriageCoordinates = [
+          { x: 37.5, y: 48 }, // 1. Desk chair (writing area)
+          { x: 41.5, y: 33 }, // 2. Top row chair 1
+          { x: 46.8, y: 33 }, // 3. Top row chair 2
+          { x: 52.0, y: 33 }, // 4. Top row chair 3
+          { x: 57.3, y: 33 }, // 5. Top row chair 4
+          { x: 41.5, y: 66 }, // 6. Bottom row chair 1 (at table)
+          { x: 46.8, y: 66 }, // 7. Bottom row chair 2 (at table)
+          { x: 52.0, y: 66 }, // 8. Bottom row chair 3 (at table)
+          { x: 57.3, y: 66 }, // 9. Bottom row chair 4 (at table)
+          { x: 26.0, y: 57 }, // 10. Driver seat (outside left)
+          { x: 67.0, y: 33 }, // 11. Cargo chest (outside right top)
+          { x: 73.0, y: 47 }  // 12. Entry platform/stairs (outside right middle)
+        ];
+        const coord = carriageCoordinates[i] || { x: 50, y: 50 };
+        x = coord.x;
+        y = coord.y;
       } else if (roomId === 'boat') {
         // Pre-defined coordinates to perfectly align with the new horizontal boat.png image
         // 12 seats: 10 on main deck (2 rows of 5), 2 on raised captain's deck

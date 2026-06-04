@@ -43,6 +43,7 @@ interface WildernessProps {
   currentProfile: Profile;
   profiles: Profile[];
   onUpdateProfile: (updates: Partial<Profile>) => void;
+  onSeatClick?: (seatId: string, isLeave: boolean) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
   currentProfile,
   profiles,
   onUpdateProfile,
+  onSeatClick,
 }) => {
   // State
   const [raidState, setRaidState] = useState<WildernessRaidState | null>(null);
@@ -464,10 +466,15 @@ export const Wilderness: React.FC<WildernessProps> = ({
   const handleSeatClick = async (seat: Seat) => {
     if (raidState?.phase === 'active') return;
     playSelect();
-    if (seat.user_id === currentProfile.id) {
-      await db.leaveSeat(currentProfile.id);
-    } else if (!seat.user_id) {
-      await db.claimSeat('wilderness', seat.id, currentProfile.id);
+    const isLeave = seat.user_id === currentProfile.id;
+    if (onSeatClick) {
+      onSeatClick(seat.id, isLeave);
+    } else {
+      if (isLeave) {
+        await db.leaveSeat(currentProfile.id);
+      } else if (!seat.user_id) {
+        await db.claimSeat('wilderness', seat.id, currentProfile.id);
+      }
     }
   };
 
@@ -475,10 +482,21 @@ export const Wilderness: React.FC<WildernessProps> = ({
   const handleQuickSeat = async () => {
     if (raidState?.phase === 'active') return;
     if (amISitting) {
-      await db.leaveSeat(currentProfile.id);
+      if (onSeatClick) {
+        const mySeat = seats.find(s => s.user_id === currentProfile.id);
+        if (mySeat) onSeatClick(mySeat.id, true);
+      } else {
+        await db.leaveSeat(currentProfile.id);
+      }
     } else {
       const empty = seats.find(s => !s.user_id);
-      if (empty) await db.claimSeat('wilderness', empty.id, currentProfile.id);
+      if (empty) {
+        if (onSeatClick) {
+          onSeatClick(empty.id, false);
+        } else {
+          await db.claimSeat('wilderness', empty.id, currentProfile.id);
+        }
+      }
     }
   };
 
