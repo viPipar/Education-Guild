@@ -140,6 +140,7 @@ export const Inventory: React.FC<InventoryProps> = ({ currentProfile, onClose, o
               outfit={currentProfile.sprite_json.outfit}
               accessory={currentProfile.sprite_json.accessory}
               petId={equippedPetId}
+              cosmeticId={currentProfile.sprite_json.cosmetic_id}
               size={72}
             />
           </div>

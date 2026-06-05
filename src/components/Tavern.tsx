@@ -72,7 +72,6 @@ export const Tavern: React.FC<TavernProps> = ({
   const seats = React.useMemo(() => db.getSeatsSync('tavern', profiles), [profiles]);
   
   // Interactive Modals
-  const [showKasir, setShowKasir] = useState(false);
   const [showGacha, setShowGacha] = useState(false);
   const [showGame, setShowGame] = useState(false);
 
@@ -82,6 +81,8 @@ export const Tavern: React.FC<TavernProps> = ({
   const [gachaError, setGachaError] = useState('');
   const [gachaPulling, setGachaPulling] = useState(false);
   const [cardRevealed, setCardRevealed] = useState(false);
+  const [activeGachaTab, setActiveGachaTab] = useState<'char_pet' | 'cosmetic'>('char_pet');
+  const [isFlipped, setIsFlipped] = useState(false);
 
   // Coin refresh helper
   const [localCoins, setLocalCoins] = useState(currentProfile.coins || 0);
@@ -1137,9 +1138,10 @@ export const Tavern: React.FC<TavernProps> = ({
     setGachaError('');
     setPullResult(null);
     setCardRevealed(false);
+    setIsFlipped(false);
     setGachaPulling(true);
 
-    const result = await db.pullCard(currentProfile.id, selectedPack);
+    const result = await db.pullCard(currentProfile.id, selectedPack, activeGachaTab);
     setGachaPulling(false);
 
     if (!result.success) {
@@ -1899,26 +1901,38 @@ export const Tavern: React.FC<TavernProps> = ({
             <div
               onClick={() => { 
                 playClick(); 
-                setShowKasir(true); 
+                setActiveGachaTab('char_pet');
+                setPullResult(null);
+                setGachaError('');
+                setCardRevealed(false);
+                setIsFlipped(false);
+                setShowGacha(true); 
                 handleSeatClick({ id: 'tavern_seat_kasir', room_id: 'tavern', user_id: null, x: 0, y: 0 });
               }}
               className="absolute top-[22%] right-[38%] w-10 h-10 bg-[#795548] border-2 border-[#3e2723] rounded flex flex-col items-center justify-center cursor-pointer hover:scale-105 transition-transform hover:border-amber-400 shadow z-20 group"
+              title="Gacha Karakter & Pet"
             >
-              <span className="text-[6px] text-green-400 font-bold font-mono group-hover:animate-bounce leading-none mt-0.5">KASIR</span>
+              <span className="text-[5px] text-[#cca566] font-bold font-mono group-hover:animate-bounce leading-none text-center px-0.5 uppercase">GACHA CHAR/PET</span>
             </div>
 
             {/* Clickable Gacha Machine (Memory Gacha) */}
             <div
               onClick={() => { 
                 playClick(); 
+                setActiveGachaTab('cosmetic');
+                setPullResult(null);
+                setGachaError('');
+                setCardRevealed(false);
+                setIsFlipped(false);
                 setShowGacha(true); 
                 handleSeatClick({ id: 'tavern_seat_gacha', room_id: 'tavern', user_id: null, x: 0, y: 0 });
               }}
               className="absolute top-[22%] right-[10%] w-10 h-10 bg-[#d90429] border-2 border-[#9b0000] rounded-t-xl flex flex-col items-center justify-center cursor-pointer hover:scale-105 transition-transform hover:border-yellow-400 shadow-xl z-20 group"
+              title="Gacha Kosmetik"
             >
               <div className="w-4 h-4 bg-white/30 rounded-full border border-white/50 flex items-center justify-center animate-pulse">
               </div>
-              <span className="text-[5.5px] text-white font-bold tracking-tight leading-none mt-0.5 rpg-font-retro">GACHA</span>
+              <span className="text-[5px] text-white font-bold tracking-tight leading-none mt-0.5 rpg-font-retro text-center uppercase px-0.5">GACHA KOSMETIK</span>
             </div>
 
             {/* Clickable Gartic Game Table */}
@@ -1982,6 +1996,7 @@ export const Tavern: React.FC<TavernProps> = ({
                           outfit={occupant.sprite_json.outfit}
                           accessory={occupant.sprite_json.accessory}
                           petId={occupant.pet_id}
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
                           size={40}
                           className="transform -translate-y-1"
                         />
@@ -2131,91 +2146,16 @@ export const Tavern: React.FC<TavernProps> = ({
       </div>
 
       {/* ====================================================
-          MODAL: KASIR — BELI CARD PACK
-          ==================================================== */}
-      {showKasir && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4">
-          <div className="rpg-panel-stone max-w-sm w-full p-5 border-4 border-[#cca566]" style={{ animation: 'fadeIn 0.15s ease-out' }}>
-
-            <div className="flex justify-between items-center border-b border-stone-700 pb-2 mb-4">
-              <h3 className="font-bold text-amber-500 text-xs rpg-font-retro flex items-center gap-1.5">
-                <Coins size={14} /> KASIR — BELI CARD PACK
-              </h3>
-              <button onClick={() => { playClick(); setShowKasir(false); }} className="text-slate-400 hover:text-white p-1"><X size={16} /></button>
-            </div>
-
-            {/* Coin balance */}
-            <div className="flex items-center gap-2 mb-4 bg-amber-950/30 border border-amber-700/40 rounded px-3 py-2">
-              <Coins size={14} className="text-yellow-500" />
-              <span className="text-xs font-bold text-yellow-300">Saldo Koin: <span className="text-yellow-100 text-sm">{localCoins} koin</span></span>
-            </div>
-
-            {/* Pack selection */}
-            <div className="flex flex-col gap-3">
-              {(Object.keys(PACK_INFO) as PackType[]).map(pack => {
-                const info = PACK_INFO[pack];
-                const canAfford = localCoins >= info.cost;
-                return (
-                  <div
-                    key={pack}
-                    onClick={() => { playSelect(); setSelectedPack(pack); }}
-                    className={`p-3 rounded border cursor-pointer transition-all ${
-                      selectedPack === pack
-                        ? 'border-amber-500 bg-amber-950/40 shadow-[0_0_10px_rgba(251,191,36,0.2)]'
-                        : 'border-[#5a3d28] bg-[#16110e] hover:border-amber-700'
-                    } ${!canAfford ? 'opacity-50' : ''}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded bg-slate-900 border border-[#5a3d28] flex items-center justify-center flex-shrink-0">
-                          {pack === 'individual' && <Package size={14} className="text-blue-400" />}
-                          {pack === 'education' && <Sparkles size={14} className="text-green-400" />}
-                          {pack === 'ieee' && <Sparkles size={14} className="text-yellow-400 animate-pulse" />}
-                        </div>
-                        <div>
-                          <p className="font-bold text-[11px] text-yellow-100">{info.label}</p>
-                          <p className="text-[8px] text-slate-400">{info.desc}</p>
-                        </div>
-                      </div>
-                      <span className={`font-bold text-xs px-2 py-1 rounded border font-mono ${
-                        canAfford ? 'text-yellow-300 border-amber-600 bg-amber-950/60' : 'text-slate-500 border-slate-700'
-                      }`}>
-                        {info.cost} koin
-                      </span>
-                    </div>
-                    <p className="text-[7px] text-slate-500 mt-1.5 font-mono">{info.probs}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => {
-                playClick();
-                setShowKasir(false);
-                setShowGacha(true);
-                setPullResult(null);
-                setGachaError('');
-                setCardRevealed(false);
-              }}
-              disabled={localCoins < PACK_INFO[selectedPack].cost}
-              className="rpg-btn-game w-full mt-4 py-3 flex items-center justify-center gap-2 font-bold disabled:opacity-40"
-            >
-              <Package size={12} /> BUKA GACHA MACHINE →
-            </button>
-          </div>
-        </div>
-      )}
-      {/* ====================================================
-          MODAL: GACHA PULL — ROBEK KARTU!
+          MODAL: UNIFIED GACHA SYSTEM
           ==================================================== */}
       {showGacha && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[2000] p-4 backdrop-blur-sm">
           <div className="rpg-panel-stone max-w-md w-full p-6 border-4 border-[#cca566]" style={{ animation: 'fadeIn 0.2s ease-out' }}>
 
-            <div className="flex justify-between items-center border-b border-stone-700 pb-3 mb-5">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center border-b border-stone-700 pb-3 mb-4">
               <h3 className="font-bold text-amber-500 text-sm rpg-font-retro flex items-center gap-2">
-                <Sparkles size={16} className="text-yellow-400" /> GACHA — {PACK_INFO[selectedPack].label}
+                <Sparkles size={16} className="text-yellow-400" /> GACHA SYSTEM
               </h3>
               <button onClick={() => { playClick(); setShowGacha(false); setPullResult(null); }}
                 className="text-slate-400 hover:text-white p-1 rounded bg-slate-900 border border-slate-700">
@@ -2223,81 +2163,265 @@ export const Tavern: React.FC<TavernProps> = ({
               </button>
             </div>
 
-            {/* Coin Balance */}
-            <div className="flex items-center gap-2 mb-4 bg-amber-950/30 border border-amber-700/40 rounded px-3 py-2">
-              <Coins size={12} className="text-yellow-500" />
-              <span className="text-[10px] font-bold text-yellow-300">Saldo: {localCoins} koin</span>
-              <span className="ml-auto text-[9px] text-slate-400">Biaya: {PACK_INFO[selectedPack].cost} koin</span>
+            {/* Gacha Tabs */}
+            <div className="flex gap-2 mb-4 border-b border-stone-800 pb-2">
+              <button
+                onClick={() => {
+                  playSelect();
+                  setActiveGachaTab('char_pet');
+                  setPullResult(null);
+                  setGachaError('');
+                  setCardRevealed(false);
+                  setIsFlipped(false);
+                }}
+                className={`flex-1 py-2 text-[9px] font-bold rpg-font-retro rounded border transition-all ${
+                  activeGachaTab === 'char_pet'
+                    ? 'border-amber-500 bg-amber-950/40 text-yellow-300'
+                    : 'border-stone-850 bg-stone-900/40 text-stone-500 hover:border-stone-750 hover:text-stone-350'
+                }`}
+              >
+                ⚔️ CHAR & PET
+              </button>
+              <button
+                onClick={() => {
+                  playSelect();
+                  setActiveGachaTab('cosmetic');
+                  setPullResult(null);
+                  setGachaError('');
+                  setCardRevealed(false);
+                  setIsFlipped(false);
+                }}
+                className={`flex-1 py-2 text-[9px] font-bold rpg-font-retro rounded border transition-all ${
+                  activeGachaTab === 'cosmetic'
+                    ? 'border-amber-500 bg-amber-950/40 text-yellow-300'
+                    : 'border-stone-850 bg-stone-900/40 text-stone-500 hover:border-stone-750 hover:text-stone-355'
+                }`}
+              >
+                🎒 KOSMETIK TOYS
+              </button>
             </div>
 
-            {/* Card Area */}
+            {/* Pack Selection Buttons */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {(Object.keys(PACK_INFO) as PackType[]).map((pack) => {
+                const info = PACK_INFO[pack];
+                const isSelected = selectedPack === pack;
+                const canAfford = localCoins >= info.cost;
+                return (
+                  <button
+                    key={pack}
+                    onClick={() => {
+                      playSelect();
+                      setSelectedPack(pack);
+                      setPullResult(null);
+                      setGachaError('');
+                      setCardRevealed(false);
+                      setIsFlipped(false);
+                    }}
+                    className={`p-2 rounded border flex flex-col items-center justify-between text-center transition-all ${
+                      isSelected
+                        ? 'border-amber-500 bg-amber-950/40 shadow-[0_0_8px_rgba(251,191,36,0.15)]'
+                        : 'border-[#5a3d28] bg-[#16110e] hover:border-amber-700'
+                    } ${!canAfford ? 'opacity-50' : ''}`}
+                  >
+                    <span className="font-bold text-[8.5px] text-yellow-100 leading-tight block truncate max-w-full">
+                      {info.label.split(' ')[0]}
+                    </span>
+                    <span className="text-[8px] font-mono font-bold text-amber-500 mt-1 block">
+                      {info.cost} koin
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selected Pack Description */}
+            <p className="text-[8px] text-slate-400 font-medium mb-4 text-center leading-normal">
+              {PACK_INFO[selectedPack].desc} <span className="font-mono text-[#cca566]">({PACK_INFO[selectedPack].probs})</span>
+            </p>
+
+            {/* Coin Balance */}
+            <div className="flex items-center gap-2 mb-4 bg-amber-950/30 border border-amber-700/40 rounded px-3 py-1.5 justify-between">
+              <div className="flex items-center gap-1.5">
+                <Coins size={12} className="text-yellow-500" />
+                <span className="text-[10px] font-bold text-yellow-300">Saldo: {localCoins} koin</span>
+              </div>
+              <span className="text-[9px] text-[#cca566] font-semibold">Biaya: {PACK_INFO[selectedPack].cost} koin</span>
+            </div>
+
+            {/* Pull Area */}
             <div className="min-h-[200px] flex flex-col items-center justify-center">
 
+              {/* Status: Idle, No result pulled yet */}
               {!pullResult && !gachaPulling && !gachaError && (
-                <div className="flex flex-col items-center gap-4">
-                  {/* Card back */}
-                  <div className="w-32 h-44 bg-gradient-to-br from-[#3a1f10] to-[#1a0d05] border-4 border-[#cca566] rounded-xl flex items-center justify-center shadow-2xl cursor-pointer hover:scale-105 transition-transform"
-                    onClick={handlePullCard}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <Package size={48} className="text-amber-500 animate-pulse" />
-                      <span className="text-[9px] text-amber-400 font-bold rpg-font-retro">ROBEK!</span>
+                <div className="flex flex-col items-center gap-3">
+                  {activeGachaTab === 'char_pet' ? (
+                    /* Character & Pet: Card Back */
+                    <div className="w-32 h-44 bg-gradient-to-br from-[#3a1f10] to-[#1a0d05] border-4 border-[#cca566] rounded-xl flex items-center justify-center shadow-2xl cursor-pointer hover:scale-105 transition-transform"
+                      onClick={handlePullCard}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <Package size={44} className="text-amber-500 animate-pulse" />
+                        <span className="text-[9px] text-amber-400 font-bold rpg-font-retro">ROBEK!</span>
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-[10px] text-slate-400 text-center">Klik kartu atau tombol di bawah untuk pull!</p>
+                  ) : (
+                    /* Cosmetics: Blister Pack Toy Box Front (Closed/Sealed) */
+                    <div className="toy-box-container hover:scale-105 transition-transform" onClick={handlePullCard}>
+                      <div className="toy-box-card">
+                        <div className="toy-box-face toy-box-front flex flex-col justify-between p-3 relative overflow-hidden">
+                          <div className="hang-tab"></div>
+                          <div className="text-center mt-2">
+                            <span className="text-[5.5px] rpg-font-retro text-amber-300 block tracking-widest leading-none">GAME SEED</span>
+                            <span className="text-[7.5px] rpg-font-retro text-white font-extrabold block leading-tight mt-0.5 uppercase tracking-wide">COSMETIC TOY</span>
+                          </div>
+                          <div className="mika-window flex items-center justify-center my-auto w-full h-[80px]">
+                            <span className="text-2xl text-yellow-500/80 font-bold animate-pulse font-mono select-none">?</span>
+                          </div>
+                          <div className="bg-amber-500 text-stone-950 font-bold text-[6.5px] py-0.5 px-2 rounded-sm text-center w-full uppercase select-none animate-pulse">
+                            BUKA KOTAK
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[9.5px] text-slate-400 text-center">Klik wadah di atas untuk melakukan pull!</p>
                 </div>
               )}
 
+              {/* Status: Pulling / Loading */}
               {gachaPulling && (
                 <div className="flex flex-col items-center gap-3">
-                  <div className="w-32 h-44 bg-gradient-to-br from-amber-900 to-yellow-700 border-4 border-yellow-400 rounded-xl flex items-center justify-center shadow-2xl animate-pulse">
-                    <Sparkles size={48} className="text-yellow-400 animate-spin" />
-                  </div>
-                  <p className="text-[10px] text-amber-400 font-bold animate-bounce">Menarik kartu...</p>
-                </div>
-              )}
-
-              {gachaError && (
-                <div className="text-center">
-                  <p className="text-red-400 font-bold text-sm mb-3">{gachaError}</p>
-                  <p className="text-[9px] text-slate-500">Minta Director tambah koin untukmu!</p>
-                </div>
-              )}
-
-              {pullResult && (
-                <div className={`flex flex-col items-center gap-3 transition-all duration-500 ${cardRevealed ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}>
-                  {/* Rarity glow card */}
-                  <div className={`w-36 h-48 rounded-xl border-4 flex flex-col items-center justify-center gap-2 p-3 shadow-2xl
-                    ${RARITY_CONFIG[pullResult.rarity]?.glow || ''}
-                    ${pullResult.rarity === 'legendary' ? 'border-yellow-400 bg-gradient-to-br from-yellow-950 to-amber-900' :
-                      pullResult.rarity === 'epic'      ? 'border-purple-500 bg-gradient-to-br from-purple-950 to-purple-900' :
-                      pullResult.rarity === 'rare'      ? 'border-blue-500 bg-gradient-to-br from-blue-950 to-blue-900' :
-                      pullResult.rarity === 'uncommon'  ? 'border-green-500 bg-gradient-to-br from-green-950 to-green-900' :
-                      'border-slate-500 bg-gradient-to-br from-slate-900 to-slate-800'
-                    }`}
-                  >
-                    {/* Asset image */}
-                    {pullResult.asset.image_url ? (
-                      <img src={pullResult.asset.image_url} alt={pullResult.asset.name}
-                        className="w-16 h-16 object-contain" style={{ imageRendering: 'pixelated' }} />
-                    ) : (
-                      <SpriteRenderer base={pullResult.asset.id} hair="none" outfit="none" accessory="none" petId="none" size={56} />
-                    )}
-                    {/* Rarity badge */}
-                    <span className={`text-[8px] font-bold px-2 py-0.5 rounded border ${RARITY_CONFIG[pullResult.rarity]?.color || ''}`}>
-                      {RARITY_CONFIG[pullResult.rarity]?.label}
-                    </span>
-                    <span className="text-[9px] font-bold text-yellow-50 text-center leading-tight">{pullResult.asset.name}</span>
-                    {pullResult.isDuplicate && (
-                      <span className="text-[7px] text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700">DUPLIKAT</span>
-                    )}
-                  </div>
-
-                  {pullResult.isDuplicate && (
-                    <p className="text-[9px] text-slate-400 text-center">Item sudah ada di inventory-mu. Quantity +1!</p>
+                  {activeGachaTab === 'char_pet' ? (
+                    <div className="w-32 h-44 bg-gradient-to-br from-amber-900 to-yellow-700 border-4 border-yellow-400 rounded-xl flex items-center justify-center shadow-2xl animate-pulse">
+                      <Sparkles size={44} className="text-yellow-400 animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="toy-box-container animate-pulse">
+                      <div className="toy-box-card animate-bounce">
+                        <div className="toy-box-face toy-box-front flex flex-col justify-between p-3 relative overflow-hidden">
+                          <div className="hang-tab"></div>
+                          <div className="mika-window flex items-center justify-center my-auto w-full h-[80px] bg-yellow-950/40">
+                            <Sparkles size={24} className="text-yellow-400 animate-spin" />
+                          </div>
+                          <div className="bg-yellow-600 text-stone-950 font-bold text-[6.5px] py-0.5 px-2 rounded-sm text-center w-full uppercase select-none">
+                            MENARIK...
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                  {!pullResult.isDuplicate && (
-                    <p className="text-[9px] text-green-400 text-center font-bold">Item baru ditambahkan ke inventory!</p>
+                  <p className="text-[10px] text-amber-400 font-bold animate-bounce">
+                    {activeGachaTab === 'char_pet' ? 'Merobek kartu...' : 'Membuka kemasan...'}
+                  </p>
+                </div>
+              )}
+
+              {/* Status: Error */}
+              {gachaError && (
+                <div className="text-center py-6">
+                  <p className="text-red-400 font-bold text-sm mb-3">{gachaError}</p>
+                  <p className="text-[9px] text-slate-500 font-medium">Minta Director tambah koin untuk akunmu!</p>
+                </div>
+              )}
+
+              {/* Status: Pulled Result Revealed */}
+              {pullResult && !gachaPulling && (
+                <div className="w-full flex justify-center py-1">
+                  {activeGachaTab === 'char_pet' ? (
+                    /* Character / Pet: Tear Card Reveal */
+                    <div className={`flex flex-col items-center gap-3 transition-all duration-500 ${cardRevealed ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}>
+                      <div className={`w-36 h-48 rounded-xl border-4 flex flex-col items-center justify-center gap-2 p-3 shadow-2xl
+                        ${RARITY_CONFIG[pullResult.rarity]?.glow || ''}
+                        ${pullResult.rarity === 'legendary' ? 'border-yellow-400 bg-gradient-to-br from-yellow-950 to-amber-900' :
+                          pullResult.rarity === 'epic'      ? 'border-purple-500 bg-gradient-to-br from-purple-950 to-purple-900' :
+                          pullResult.rarity === 'rare'      ? 'border-blue-500 bg-gradient-to-br from-blue-950 to-blue-900' :
+                          pullResult.rarity === 'uncommon'  ? 'border-green-500 bg-gradient-to-br from-green-950 to-green-900' :
+                          'border-slate-500 bg-gradient-to-br from-slate-900 to-slate-800'
+                        }`}
+                      >
+                        {pullResult.asset.image_url ? (
+                          <img src={pullResult.asset.image_url} alt={pullResult.asset.name}
+                            className="w-16 h-16 object-contain animate-bounce" style={{ imageRendering: 'pixelated' }} />
+                        ) : (
+                          <SpriteRenderer base={pullResult.asset.id} hair="none" outfit="none" accessory="none" petId="none" size={56} />
+                        )}
+                        <span className={`text-[8px] font-bold px-2 py-0.5 rounded border ${RARITY_CONFIG[pullResult.rarity]?.color || ''}`}>
+                          {RARITY_CONFIG[pullResult.rarity]?.label}
+                        </span>
+                        <span className="text-[9px] font-bold text-yellow-50 text-center leading-tight">{pullResult.asset.name}</span>
+                        {pullResult.isDuplicate && (
+                          <span className="text-[7px] text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700">DUPLIKAT</span>
+                        )}
+                      </div>
+                      
+                      {pullResult.isDuplicate ? (
+                        <p className="text-[9px] text-slate-400 text-center">Item sudah dimiliki. Qty +1!</p>
+                      ) : (
+                        <p className="text-[9px] text-green-400 text-center font-bold">Item ditambahkan to inventory!</p>
+                      )}
+                    </div>
+                  ) : (
+                    /* Cosmetics: Hot Wheels Blister Package 3D Flip */
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="toy-box-container">
+                        <div className={`toy-box-card ${isFlipped ? 'is-flipped' : ''}`} onClick={() => { playSelect(); setIsFlipped(true); }}>
+                          {/* Front Face: Sealed Retail Box */}
+                          <div className="toy-box-face toy-box-front flex flex-col justify-between p-3 relative overflow-hidden">
+                            <div className="hang-tab"></div>
+                            <div className="text-center mt-2">
+                              <span className="text-[5.5px] rpg-font-retro text-amber-300 block tracking-widest leading-none">GAME SEED</span>
+                              <span className="text-[7.5px] rpg-font-retro text-white font-extrabold block leading-tight mt-0.5 uppercase tracking-wide">COSMETIC TOY</span>
+                            </div>
+                            <div className="mika-window flex items-center justify-center my-auto w-full h-[80px]">
+                              {/* glowing item silhouette */}
+                              <div className="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center animate-pulse border border-yellow-500/20">
+                                <span className="text-xl text-yellow-400 font-bold font-mono">?</span>
+                              </div>
+                            </div>
+                            <div className="bg-yellow-500 text-stone-950 font-bold text-[6px] py-0.5 px-2 rounded-sm text-center w-full uppercase select-none animate-pulse">
+                              KETUK UNTUK FLIP!
+                            </div>
+                          </div>
+
+                          {/* Back Face: Revealed Cosmetic */}
+                          <div className="toy-box-face toy-box-back flex flex-col justify-between p-3 relative overflow-hidden">
+                            <div className="hang-tab"></div>
+                            <div className="text-center mt-2">
+                              <span className="text-[6.5px] font-bold text-[#cca566] uppercase tracking-wider block font-mono">COLLECTOR CARD</span>
+                            </div>
+                            
+                            {/* Showcase Display Area */}
+                            <div className="w-full bg-black/80 border border-[#cca566]/40 rounded-lg p-2 flex flex-col items-center justify-center my-auto min-h-[80px]">
+                              {pullResult.asset.image_url ? (
+                                <img src={pullResult.asset.image_url} alt={pullResult.asset.name}
+                                  className="w-14 h-14 object-contain" style={{ imageRendering: 'pixelated' }} />
+                              ) : (
+                                <SpriteRenderer base={pullResult.asset.id} hair="none" outfit="none" accessory="none" petId="none" size={44} />
+                              )}
+                              <span className={`text-[6.5px] font-mono border px-1.5 py-0.2 rounded uppercase font-bold mt-1.5 ${RARITY_CONFIG[pullResult.rarity]?.color || ''}`}>
+                                {RARITY_CONFIG[pullResult.rarity]?.label}
+                              </span>
+                            </div>
+                            
+                            <div className="text-center w-full mt-1">
+                              <span className="text-[8.5px] font-bold text-yellow-50 block leading-tight truncate px-1">{pullResult.asset.name}</span>
+                              {pullResult.isDuplicate ? (
+                                <span className="text-[6px] text-slate-400 bg-slate-900/80 px-1 py-0.2 rounded border border-slate-700 inline-block mt-0.5">DUPLIKAT (Qty +1)</span>
+                              ) : (
+                                <span className="text-[6px] text-green-400 font-bold block mt-0.5 uppercase">BARU!</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {!isFlipped ? (
+                        <p className="text-[9px] text-[#cca566] text-center font-bold animate-pulse">Klik kotak mainan untuk membalik badan!</p>
+                      ) : (
+                        <p className="text-[9px] text-yellow-400 text-center font-semibold">Berhasil didapatkan!</p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -2309,16 +2433,16 @@ export const Tavern: React.FC<TavernProps> = ({
                 <button
                   onClick={handlePullCard}
                   disabled={gachaPulling || localCoins < PACK_INFO[selectedPack].cost}
-                  className="rpg-btn-game w-full py-3 flex items-center justify-center gap-2 font-bold text-sm disabled:opacity-40"
+                  className="rpg-btn-game w-full py-3 flex items-center justify-center gap-2 font-bold text-xs disabled:opacity-40"
                 >
-                  <Sparkles size={14} /> {gachaPulling ? 'MENARIK...' : `ROBEK KARTU! (${PACK_INFO[selectedPack].cost} koin)`}
+                  <Sparkles size={12} /> {gachaPulling ? 'MENARIK...' : `ROBEK KARTU! (${PACK_INFO[selectedPack].cost} koin)`}
                 </button>
               ) : (
                 <div className="flex flex-col gap-2">
                   <button
                     onClick={handlePullCard}
                     disabled={gachaPulling || localCoins < PACK_INFO[selectedPack].cost}
-                    className="rpg-btn-game w-full py-2.5 flex items-center justify-center gap-2 font-bold disabled:opacity-40"
+                    className="rpg-btn-game w-full py-2.5 flex items-center justify-center gap-2 font-bold disabled:opacity-40 text-xs"
                   >
                     <Sparkles size={12} /> PULL LAGI ({PACK_INFO[selectedPack].cost} koin)
                   </button>
@@ -2331,14 +2455,6 @@ export const Tavern: React.FC<TavernProps> = ({
                     REROLL — {PACK_INFO[selectedPack].cost} koin
                   </button>
                 </div>
-              )}
-              {gachaError && (
-                <button
-                  onClick={() => { setShowGacha(false); setShowKasir(true); }}
-                  className="rpg-btn-game w-full py-2 text-[10px]"
-                >
-                  ← Kembali ke Kasir
-                </button>
               )}
             </div>
           </div>

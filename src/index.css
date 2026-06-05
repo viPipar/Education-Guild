@@ -578,11 +578,11 @@ body {
   align-items: center;
   pointer-events: none;
   z-index: 9999;
-  animation: bird-container-fly 12s linear infinite;
+  animation: bird-container-fly 20s linear infinite;
 }
 
 .announcement-bird-wrapper {
-  animation: bird-svg-order 12s step-end infinite;
+  animation: bird-svg-order 20s step-end infinite;
 }
 
 .announcement-bird-img {
@@ -590,7 +590,7 @@ body {
   height: 56px;
   object-fit: contain;
   image-rendering: pixelated;
-  animation: bird-facing-flip 12s step-end infinite;
+  animation: bird-facing-flip 20s step-end infinite;
 }
 
 .announcement-paper {
@@ -607,13 +607,16 @@ body {
   max-width: 280px;
   white-space: normal;
   word-wrap: break-word;
-  animation: bird-paper-order 12s step-end infinite;
+  animation: bird-paper-order 20s step-end infinite;
 }
 
 @keyframes bird-container-fly {
-  0% { left: -450px; }
-  50% { left: 100vw; }
-  100% { left: -450px; }
+  0% { left: -450px; transform: translateX(0); }
+  15%, 40% { left: 50%; transform: translateX(-50%); }
+  50% { left: 100vw; transform: translateX(0); }
+  50.1% { left: 100vw; transform: translateX(0); }
+  65%, 90% { left: 50%; transform: translateX(-50%); }
+  100% { left: -450px; transform: translateX(0); }
 }
 
 @keyframes bird-facing-flip {
@@ -723,4 +726,107 @@ input[type="range"].rpg-slider::-moz-range-thumb:active {
 
 input[type="range"].rpg-slider:focus {
   outline: none;
+}
+
+/* ==========================================
+   TOY BOX 3D FLIP (HOT WHEELS COSMETICS)
+   ========================================== */
+.toy-box-container {
+  perspective: 1000px;
+  width: 144px;
+  height: 192px;
+  position: relative;
+}
+
+.toy-box-card {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  transform-style: preserve-3d;
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.toy-box-card.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.toy-box-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 12px;
+  border-width: 4px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+}
+
+.toy-box-front {
+  background: linear-gradient(135deg, #d90429 0%, #7a0010 100%);
+  border-color: #cca566;
+  z-index: 2;
+}
+
+.toy-box-back {
+  background: linear-gradient(135deg, #16110e 0%, #2a211b 100%);
+  border-color: #cca566;
+  transform: rotateY(180deg);
+}
+
+/* Clear Plastic Mika Window Bubble */
+.mika-window {
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 60%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.2), 0 4px 6px rgba(0,0,0,0.4);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.mika-window::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0) 30%,
+    rgba(255, 255, 255, 0.18) 45%,
+    rgba(255, 255, 255, 0) 60%
+  );
+  transform: translateX(-100%);
+  animation: mika-glare 4s infinite ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes mika-glare {
+  0% { transform: translateX(-100%); }
+  30%, 100% { transform: translateX(100%); }
+}
+
+/* Blister Retail Hook/Hang Tab Cutout */
+.hang-tab {
+  width: 32px;
+  height: 8px;
+  background-color: #09080a;
+  border: 2px solid #5a3d28;
+  border-radius: 9999px;
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+}
+
+/* Cosmetic slow floating (hover) animation */
+@keyframes cosmetic-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.animate-cosmetic-float {
+  animation: cosmetic-float 3s infinite ease-in-out;
 }

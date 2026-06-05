@@ -168,6 +168,7 @@ function App() {
   const [globalMusicStatus, setGlobalMusicStatus] = useState<'playing' | 'stopped'>('stopped');
   const [globalMusicStartedAt, setGlobalMusicStartedAt] = useState<number>(0);
   const [isMuted, setIsMuted] = useState<boolean>(false); // Default to unmuted as requested by user
+  const [musicVolume, setMusicVolume] = useState<number>(() => Number(localStorage.getItem('rpg_music_volume') || '50'));
   const youtubeIframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [stableMusicParams, setStableMusicParams] = useState<{ url: string; start: number; mute: boolean } | null>(null);
 
@@ -287,6 +288,21 @@ function App() {
       setStableMusicParams(null);
     }
   }, [globalMusicUrl, globalMusicStatus, globalMusicStartedAt]);
+
+  // Save volume preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('rpg_music_volume', musicVolume.toString());
+  }, [musicVolume]);
+
+  // Synchronize volume state with iframe via postMessage
+  useEffect(() => {
+    if (youtubeIframeRef.current && youtubeIframeRef.current.contentWindow) {
+      youtubeIframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: 'setVolume', args: [musicVolume] }),
+        '*'
+      );
+    }
+  }, [musicVolume, stableMusicParams]);
 
   // Synchronize mute/unmute state with iframe via postMessage to avoid restarting the video
   useEffect(() => {
@@ -673,32 +689,48 @@ function App() {
               )}
             </div>
 
-            {/* Global Music Control Button (Volume/Mute toggle) */}
+            {/* Global Music Control Button (Volume/Mute toggle) & Slider */}
             {globalMusicUrl && globalMusicStatus === 'playing' && (
-              <button
-                onClick={() => {
-                  playClick();
-                  setIsMuted(!isMuted);
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 shadow-md cursor-pointer transition-all active:scale-95 ${
-                  isMuted
-                    ? 'border-red-950 bg-red-950/40 text-red-400 border-red-900 hover:bg-red-900/20'
-                    : 'border-green-600 bg-green-950/30 text-green-400 hover:bg-green-600/20 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                }`}
-                title={isMuted ? "Unmute Musik Rapat" : "Mute Musik Rapat"}
-              >
-                {isMuted ? (
-                  <>
-                    <VolumeX size={14} />
-                    <span className="text-[7.5px] font-bold uppercase tracking-wider font-mono">MUTED</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 size={14} className="animate-bounce" />
-                    <span className="text-[7.5px] font-bold uppercase tracking-wider font-mono animate-pulse">PLAYING</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 bg-black/40 border border-[#cca566]/30 px-2 py-1 rounded-lg shadow-inner">
+                <button
+                  onClick={() => {
+                    playClick();
+                    setIsMuted(!isMuted);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded border-2 shadow-md cursor-pointer transition-all active:scale-95 ${
+                    isMuted
+                      ? 'border-red-950 bg-red-950/40 text-red-400 border-red-900 hover:bg-red-900/20'
+                      : 'border-green-600 bg-green-950/30 text-green-400 hover:bg-green-600/20 shadow-[0_0_8px_rgba(34,197,94,0.25)]'
+                  }`}
+                  title={isMuted ? "Unmute Musik Rapat" : "Mute Musik Rapat"}
+                >
+                  {isMuted ? (
+                    <>
+                      <VolumeX size={12} />
+                      <span className="text-[7px] font-bold uppercase tracking-wider font-mono">MUTED</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 size={12} className="animate-bounce" />
+                      <span className="text-[7px] font-bold uppercase tracking-wider font-mono animate-pulse">PLAYING</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Volume Slider */}
+                <div className="flex items-center gap-1 text-[#cca566]">
+                  <span className="text-[7px] font-bold font-mono tracking-wider">VOL</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={musicVolume}
+                    onChange={(e) => setMusicVolume(Number(e.target.value))}
+                    className="rpg-slider w-16"
+                  />
+                  <span className="text-[7.5px] font-bold font-mono w-6 text-right text-amber-400">{musicVolume}%</span>
+                </div>
+              </div>
             )}
 
             {/* Profile HUD Card */}
@@ -1023,6 +1055,7 @@ function App() {
                   outfit={selectedProfileForDetail.sprite_json.outfit}
                   accessory={selectedProfileForDetail.sprite_json.accessory}
                   petId={selectedProfileForDetail.pet_id}
+                  cosmeticId={selectedProfileForDetail.sprite_json.cosmetic_id}
                   size={80}
                 />
               </div>
@@ -1108,6 +1141,21 @@ function App() {
             style={{ position: 'absolute', width: 0, height: 0, border: 0, opacity: 0, pointerEvents: 'none' }}
             allow="autoplay"
             title="Global Round Table Music Player"
+            onLoad={() => {
+              if (youtubeIframeRef.current && youtubeIframeRef.current.contentWindow) {
+                // Set initial volume
+                youtubeIframeRef.current.contentWindow.postMessage(
+                  JSON.stringify({ event: 'command', func: 'setVolume', args: [musicVolume] }),
+                  '*'
+                );
+                // Set initial mute
+                const command = isMuted ? 'mute' : 'unMute';
+                youtubeIframeRef.current.contentWindow.postMessage(
+                  JSON.stringify({ event: 'command', func: command, args: [] }),
+                  '*'
+                );
+              }
+            }}
           />
         );
       })()}

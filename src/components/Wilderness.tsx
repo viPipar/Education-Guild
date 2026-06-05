@@ -821,6 +821,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
                           outfit={occupant.sprite_json.outfit} 
                           accessory={occupant.sprite_json.accessory}
                           petId="none" 
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
                           size={28} 
                         />
                         {!raider.alive && (
@@ -918,7 +919,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       <div className={`relative ${!raider.alive ? 'opacity-40 grayscale saturate-0' : ''} transition-all`}>
                         <SpriteRenderer base={occupant.sprite_json.base} hair={occupant.sprite_json.hair}
                           outfit={occupant.sprite_json.outfit} accessory={occupant.sprite_json.accessory}
-                          petId="none" size={32} />
+                          petId="none" cosmeticId={occupant.sprite_json.cosmetic_id} size={32} />
                         {!raider.alive && (
                           <div className="absolute inset-0 flex items-center justify-center font-bold text-red-500 drop-shadow shadow-black">
                             <span className="text-base">☠</span>
@@ -943,7 +944,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       onClick={() => handleSeatClick(seat)}>
                       <SpriteRenderer base={occupant.sprite_json.base} hair={occupant.sprite_json.hair}
                         outfit={occupant.sprite_json.outfit} accessory={occupant.sprite_json.accessory}
-                        petId="none" size={32} />
+                        petId="none" cosmeticId={occupant.sprite_json.cosmetic_id} size={32} />
                       <div 
                         className="text-xs font-mono truncate max-w-[60px] leading-tight text-center"
                         style={{ color: occupant.sprite_json.nameColor || '#d1d5db' }}

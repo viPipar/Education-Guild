@@ -33,6 +33,7 @@ export interface Profile {
     outfit: string;
     accessory: string;
     nameColor?: string;
+    cosmetic_id?: string;
   };
   pet_id: string;
   current_status: string;
@@ -1176,7 +1177,8 @@ export const db = {
   // Pull one card: deduct coins, roll rarity, pick random asset of that rarity, add to inventory
   async pullCard(
     userId: string,
-    packType: 'individual' | 'education' | 'ieee'
+    packType: 'individual' | 'education' | 'ieee',
+    gachaType?: 'char_pet' | 'cosmetic'
   ): Promise<{ success: boolean; asset: RpgAsset | null; rarity: Rarity; isDuplicate: boolean; newCoins?: number; errorMsg?: string }> {
     const cost = this.packCost(packType);
     const newCoins = await this.spendCoins(userId, cost);
@@ -1184,15 +1186,30 @@ export const db = {
 
     const rolledRarity = this.gachaRoll(packType);
     const allAssets = await this.getAssets();
-    const pool = allAssets.filter(a => a.rarity === rolledRarity);
+    
+    // Filter initial pool
+    let pool = allAssets.filter(a => a.rarity === rolledRarity);
+    if (gachaType === 'char_pet') {
+      pool = pool.filter(a => a.type === 'character' || a.type === 'pet');
+    } else if (gachaType === 'cosmetic') {
+      pool = pool.filter(a => a.type === 'cosmetic');
+    }
 
     // Fallback: if no assets for that rarity, try lower rarities
     let finalPool = pool;
     if (finalPool.length === 0) {
       const order: Rarity[] = ['legendary','epic','rare','uncommon','common'];
       for (const r of order) {
-        finalPool = allAssets.filter(a => a.rarity === r);
-        if (finalPool.length > 0) break;
+        let tempPool = allAssets.filter(a => a.rarity === r);
+        if (gachaType === 'char_pet') {
+          tempPool = tempPool.filter(a => a.type === 'character' || a.type === 'pet');
+        } else if (gachaType === 'cosmetic') {
+          tempPool = tempPool.filter(a => a.type === 'cosmetic');
+        }
+        if (tempPool.length > 0) {
+          finalPool = tempPool;
+          break;
+        }
       }
     }
     if (finalPool.length === 0) {

@@ -3,7 +3,7 @@ import type { Profile, RpgAsset } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
 import { HouseClicker } from './HouseClicker';
-import { Shield, Sparkles, Smile, LogIn, Package } from 'lucide-react';
+import { Shield, Sparkles, Smile, LogIn, Package, Eye, EyeOff } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
 
@@ -28,6 +28,9 @@ export const House: React.FC<HouseProps> = ({
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showUpdatePassword, setShowUpdatePassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
 
 
 
@@ -54,6 +57,7 @@ export const House: React.FC<HouseProps> = ({
   // ── Dynamic Asset State ──────────────────────────────────────────────────
   const [characterOptions, setCharacterOptions] = useState<RpgAsset[]>([]);
   const [petOptions, setPetOptions] = useState<RpgAsset[]>([]);
+  const [cosmeticOptions, setCosmeticOptions] = useState<RpgAsset[]>([]);
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   const loadAssets = async () => {
@@ -92,6 +96,15 @@ export const House: React.FC<HouseProps> = ({
       setPetOptions([
         { id: 'none', name: 'Tidak Ada Pet', type: 'pet', rarity: 'common', min_level: 1, description: '', image_url: '' },
         ...ownedPetAssets
+      ]);
+
+      // Owned custom cosmetic assets
+      const ownedCosmeticAssets = all.filter(a => a.type === 'cosmetic' && (a.rarity === 'basic' || inv.some(i => i.asset_id === a.id)));
+
+      // Default no-cosmetic option + owned custom cosmetics
+      setCosmeticOptions([
+        { id: 'none', name: 'Tidak Ada Kosmetik', type: 'cosmetic', rarity: 'common', min_level: 1, description: '', image_url: '' },
+        ...ownedCosmeticAssets
       ]);
     } catch (err) {
       console.error('Failed to load assets in House:', err);
@@ -237,6 +250,28 @@ export const House: React.FC<HouseProps> = ({
     onUpdateProfile({ pet_id: availablePets[newIndex].id });
   };
 
+  const handleCosmeticCarouselChange = (direction: 'next' | 'prev') => {
+    if (!currentProfile || cosmeticOptions.length === 0) return;
+    playSelect();
+    // Filter available cosmetics based on current user level
+    const availableCosmetics = cosmeticOptions.filter(cosmetic => currentProfile.level >= cosmetic.min_level);
+    const currentCosmeticId = currentProfile.sprite_json.cosmetic_id || 'none';
+    const currentIndex = availableCosmetics.findIndex(cosmetic => cosmetic.id === currentCosmeticId);
+
+    let newIndex = 0;
+    if (direction === 'next') {
+      newIndex = (currentIndex + 1) % availableCosmetics.length;
+    } else {
+      newIndex = (currentIndex - 1 + availableCosmetics.length) % availableCosmetics.length;
+    }
+    onUpdateProfile({
+      sprite_json: {
+        ...currentProfile.sprite_json,
+        cosmetic_id: availableCosmetics[newIndex].id
+      }
+    });
+  };
+
 
   const handleEmojiCarouselChange = (direction: 'next' | 'prev') => {
     playSelect();
@@ -274,14 +309,23 @@ export const House: React.FC<HouseProps> = ({
 
           <div className="mb-6 text-left text-xs font-semibold">
             <label className="block text-[9px] rpg-font-retro text-slate-400 mb-2">PASSWORD</label>
-            <input
-              type="password"
-              required
-              placeholder="Masukkan password Anda"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-[#16110e] text-yellow-100 p-3.5 rounded border border-[#5a3d28] focus:outline-none font-bold"
-            />
+            <div className="relative">
+              <input
+                type={showLoginPassword ? "text" : "password"}
+                required
+                placeholder="Masukkan password Anda"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-[#16110e] text-yellow-100 p-3.5 pr-10 rounded border border-[#5a3d28] focus:outline-none font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => { playSelect(); setShowLoginPassword(!showLoginPassword); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white focus:outline-none"
+              >
+                {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           {loginError && <span className="text-[9px] text-red-500 font-bold block mb-4">{loginError}</span>}
@@ -303,6 +347,7 @@ export const House: React.FC<HouseProps> = ({
   const activeCharacterOpt = characterOptions.find(opt => opt.id === currentBase);
   const activeCharacterName = activeCharacterOpt ? activeCharacterOpt.name : currentBase;
   const activePetName = petOptions.find(opt => opt.id === currentProfile.pet_id)?.name || 'Tidak Ada';
+  const activeCosmeticName = cosmeticOptions.find(opt => opt.id === (currentProfile.sprite_json.cosmetic_id || 'none'))?.name || 'Tidak Ada';
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
@@ -365,6 +410,7 @@ export const House: React.FC<HouseProps> = ({
                 outfit={currentProfile.sprite_json.outfit}
                 accessory={currentProfile.sprite_json.accessory}
                 petId={currentProfile.pet_id}
+                cosmeticId={currentProfile.sprite_json.cosmetic_id}
                 size={144}
                 className="transform hover:scale-105 transition-transform drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
               />
@@ -386,8 +432,8 @@ export const House: React.FC<HouseProps> = ({
 
           </div>
 
-          {/* LOWER CONTROLS (Pet Stable, Status Emoji & Name Color side by side) */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl mt-4">
+          {/* LOWER CONTROLS (Pet Stable, Cosmetic closet, Status Emoji & Name Color) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full max-w-3xl mt-4">
             
             {/* Pet Stable */}
             <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
@@ -404,6 +450,28 @@ export const House: React.FC<HouseProps> = ({
                 <button
                   type="button"
                   onClick={() => handlePetCarouselChange('next')}
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
+                >
+                  ▶
+                </button>
+              </div>
+            </div>
+
+            {/* Lemari Kosmetik */}
+            <div className="flex flex-col p-3 bg-[#16110e] border border-[#5a3d28]/60 rounded-md">
+              <span className="text-[8px] rpg-font-retro text-amber-500 mb-1.5 block text-center">LEMARI KOSMETIK</span>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCosmeticCarouselChange('prev')}
+                  className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
+                >
+                  ◀
+                </button>
+                <span className="text-[10px] font-bold text-yellow-100 text-center flex-1 truncate">{activeCosmeticName}</span>
+                <button
+                  type="button"
+                  onClick={() => handleCosmeticCarouselChange('next')}
                   className="rpg-btn-game py-1 px-3 text-[10px] font-bold"
                 >
                   ▶
@@ -505,13 +573,22 @@ export const House: React.FC<HouseProps> = ({
               <Shield size={12} /> SECURE PASSWORD UPDATE
             </h3>
             <div className="space-y-2 text-xs">
-              <input
-                type="password"
-                placeholder="Masukkan password baru..."
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none"
-              />
+              <div className="relative">
+                <input
+                  type={showUpdatePassword ? "text" : "password"}
+                  placeholder="Masukkan password baru..."
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-[#16110e] text-yellow-50 p-2 pr-8 rounded border border-[#5a3d28] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => { playSelect(); setShowUpdatePassword(!showUpdatePassword); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white focus:outline-none"
+                >
+                  {showUpdatePassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
               {changePasswordError && <span className="text-[8px] text-red-500 font-bold block">{changePasswordError}</span>}
               {changePasswordSuccess && <span className="text-[8px] text-green-500 font-bold block">{changePasswordSuccess}</span>}
               <button
@@ -555,16 +632,25 @@ export const House: React.FC<HouseProps> = ({
                     />
                   </div>
                 </div>
-                <div>
+                 <div>
                   <label className="block text-[8px] text-slate-400 mb-0.5">PASSWORD DEFAULT:</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Minimal 6 karakter"
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    className="w-full bg-[#16110e] text-yellow-50 p-1.5 rounded border border-[#5a3d28] focus:outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegisterPassword ? "text" : "password"}
+                      required
+                      placeholder="Minimal 6 karakter"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      className="w-full bg-[#16110e] text-yellow-50 p-1.5 pr-8 rounded border border-[#5a3d28] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { playSelect(); setShowRegisterPassword(!showRegisterPassword); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white focus:outline-none"
+                    >
+                      {showRegisterPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>

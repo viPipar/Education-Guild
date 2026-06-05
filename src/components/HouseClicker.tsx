@@ -396,6 +396,7 @@ export const HouseClicker: React.FC<{ currentProfile: Profile }> = ({ currentPro
               outfit={currentProfile.sprite_json.outfit}
               accessory={currentProfile.sprite_json.accessory}
               petId={currentProfile.pet_id}
+              cosmeticId={currentProfile.sprite_json.cosmetic_id}
               size={96}
             />
           </div>

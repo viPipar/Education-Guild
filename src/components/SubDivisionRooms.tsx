@@ -552,6 +552,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               outfit={occupant.sprite_json.outfit}
                               accessory={occupant.sprite_json.accessory}
                               petId={occupant.pet_id}
+                              cosmeticId={occupant.sprite_json.cosmetic_id}
                               size={48}
                               className="transform -translate-y-1"
                             />
@@ -736,6 +737,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               outfit={occupant.sprite_json.outfit}
                               accessory={occupant.sprite_json.accessory}
                               petId={occupant.pet_id}
+                              cosmeticId={occupant.sprite_json.cosmetic_id}
                               size={48}
                               className="transform -translate-y-1"
                             />

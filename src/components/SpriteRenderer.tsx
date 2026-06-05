@@ -6,6 +6,7 @@ interface SpriteProps {
   outfit: string;
   accessory: string;
   petId?: string;
+  cosmeticId?: string;
   size?: number;
   className?: string;
 }
@@ -26,6 +27,7 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
   outfit,
   accessory,
   petId = 'none',
+  cosmeticId = 'none',
   size = 48,
   className = ''
 }) => {
@@ -35,6 +37,8 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
   const charAsset = assetCache.find(a => a.id === base && a.type === 'character' && a.image_url);
   // Check if the pet has a custom image in the cache
   const petAsset = assetCache.find(a => a.id === petId && a.type === 'pet' && a.image_url);
+  // Check if the cosmetic has a custom image in the cache
+  const cosmeticAsset = assetCache.find(a => a.id === cosmeticId && a.type === 'cosmetic' && a.image_url);
 
   // ─── Color helpers (legacy SVG rendering only) ─────────────────────────────
 
@@ -233,6 +237,22 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
             </svg>
           )
         )}
+        {cosmeticId && cosmeticId !== 'none' && cosmeticAsset?.image_url && (
+          <img
+            src={cosmeticAsset.image_url}
+            alt="cosmetic"
+            className="animate-cosmetic-float"
+            style={{
+              position: 'absolute',
+              bottom: Math.round(size * 0.20),
+              left: Math.round(size * 0.12),
+              width: Math.round(size * 0.48),
+              height: Math.round(size * 0.48),
+              objectFit: 'contain',
+              imageRendering: 'pixelated',
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -280,6 +300,16 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
           ) : (
             getPetSvg()
           )
+        )}
+
+        {/* Cosmetic overlay on the LEFT, smaller */}
+        {cosmeticId && cosmeticId !== 'none' && cosmeticAsset?.image_url && (
+          <image
+            href={cosmeticAsset.image_url}
+            x="9" y="19" width="20" height="20"
+            className="animate-cosmetic-float"
+            style={{ imageRendering: 'pixelated' }}
+          />
         )}
       </svg>
     </div>

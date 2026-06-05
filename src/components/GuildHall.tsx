@@ -759,6 +759,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
                           outfit={occupant.sprite_json.outfit}
                           accessory={occupant.sprite_json.accessory}
                           petId={occupant.pet_id}
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
                           size={54}
                           className="transform -translate-y-2"
                         />
