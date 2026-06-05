@@ -570,4 +570,157 @@ body {
   animation: lightning-flash 8s infinite;
 }
 
+/* --- Announcement Flying Bird Overlay --- */
+.announcement-bird-container {
+  position: fixed;
+  top: 90px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  z-index: 9999;
+  animation: bird-container-fly 12s linear infinite;
+}
 
+.announcement-bird-wrapper {
+  animation: bird-svg-order 12s step-end infinite;
+}
+
+.announcement-bird-img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  animation: bird-facing-flip 12s step-end infinite;
+}
+
+.announcement-paper {
+  background-color: #fcefd2;
+  border: 4px solid #5a3d28;
+  outline: 2px solid #1a100a;
+  box-shadow: 0 6px 0 #3a2215, 0 12px 18px rgba(0,0,0,0.5);
+  color: #3e2211;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: bold;
+  max-width: 280px;
+  white-space: normal;
+  word-wrap: break-word;
+  animation: bird-paper-order 12s step-end infinite;
+}
+
+@keyframes bird-container-fly {
+  0% { left: -450px; }
+  50% { left: 100vw; }
+  100% { left: -450px; }
+}
+
+@keyframes bird-facing-flip {
+  0%, 49.9% {
+    transform: scaleX(1); /* facing right */
+  }
+  50%, 99.9% {
+    transform: scaleX(-1); /* facing left */
+  }
+}
+
+@keyframes bird-paper-order {
+  0%, 49.9% {
+    order: 1;
+    margin-right: 12px;
+    margin-left: 0;
+  }
+  50%, 99.9% {
+    order: 2;
+    margin-left: 12px;
+    margin-right: 0;
+  }
+}
+
+@keyframes bird-svg-order {
+  0%, 49.9% {
+    order: 2;
+  }
+  50%, 99.9% {
+    order: 1;
+  }
+}
+
+
+/* ==========================================
+   CUSTOM RPG SLIDER STYLING
+   ========================================== */
+input[type="range"].rpg-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 24px; /* Area sentuh/klik yang baik */
+  vertical-align: middle;
+}
+
+/* Track styles */
+input[type="range"].rpg-slider::-webkit-slider-runnable-track {
+  background-color: #16110e;
+  border: 2px solid #5a3d28;
+  height: 8px;
+  border-radius: 4px;
+}
+
+input[type="range"].rpg-slider::-moz-range-track {
+  background-color: #16110e;
+  border: 2px solid #5a3d28;
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* Thumb styles */
+input[type="range"].rpg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px; /* Memposisikan thumb tepat di tengah track (setengah tinggi track - setengah tinggi thumb) */
+  background: radial-gradient(circle, #fff0c7 0%, #ffd700 100%);
+  border: 2px solid #5a3d28;
+  outline: 1px solid #1a100a;
+  height: 16px;
+  width: 16px;
+  border-radius: 3px; /* Gaya pixel art */
+  box-shadow: 0 2px 0 #1a100a, inset 0 1px 0 rgba(255,255,255,0.4);
+  transition: transform 0.1s, background-color 0.1s;
+}
+
+input[type="range"].rpg-slider::-webkit-slider-thumb:hover {
+  background: radial-gradient(circle, #ffffff 0%, #ffeb60 100%);
+  transform: scale(1.15);
+}
+
+input[type="range"].rpg-slider::-webkit-slider-thumb:active {
+  background: #ffecb3;
+  transform: scale(0.95);
+}
+
+input[type="range"].rpg-slider::-moz-range-thumb {
+  background: radial-gradient(circle, #fff0c7 0%, #ffd700 100%);
+  border: 2px solid #5a3d28;
+  outline: 1px solid #1a100a;
+  height: 16px;
+  width: 16px;
+  border-radius: 3px;
+  box-shadow: 0 2px 0 #1a100a, inset 0 1px 0 rgba(255,255,255,0.4);
+  transition: transform 0.1s, background-color 0.1s;
+}
+
+input[type="range"].rpg-slider::-moz-range-thumb:hover {
+  background: radial-gradient(circle, #ffffff 0%, #ffeb60 100%);
+  transform: scale(1.15);
+}
+
+input[type="range"].rpg-slider::-moz-range-thumb:active {
+  background: #ffecb3;
+  transform: scale(0.95);
+}
+
+input[type="range"].rpg-slider:focus {
+  outline: none;
+}

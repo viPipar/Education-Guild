@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
-import { db } from '../lib/supabase';
+import { db, isMock, supabase } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
-import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info, Music } from 'lucide-react';
+import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info, Music, Calendar } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
 
@@ -14,6 +14,37 @@ const ensureAbsoluteUrl = (url?: string): string => {
   }
   return `https://${trimmed}`;
 };
+
+const getDaysArray = (vDate: Date) => {
+  const firstDay = new Date(vDate.getFullYear(), vDate.getMonth(), 1);
+  let startDayIdx = firstDay.getDay(); // 0 is Sunday, 1 is Monday...
+  if (startDayIdx === 0) startDayIdx = 7;
+  const padding = startDayIdx - 1; // padding slots before day 1
+
+  const totalDays = new Date(vDate.getFullYear(), vDate.getMonth() + 1, 0).getDate();
+  const days = [];
+  for (let i = 0; i < padding; i++) {
+    days.push(null);
+  }
+  for (let i = 1; i <= totalDays; i++) {
+    days.push(new Date(vDate.getFullYear(), vDate.getMonth(), i));
+  }
+  return days;
+};
+
+const indonesianMonths = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+const formatIndonesianDate = (d: Date) => {
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  return `${days[d.getDay()]}, ${d.getDate()} ${indonesianMonths[d.getMonth()]} ${d.getFullYear()}`;
+};
+
+const timeOptions: string[] = [];
+for (let h = 0; h < 24; h++) {
+  const hrStr = h.toString().padStart(2, '0');
+  timeOptions.push(`${hrStr}:00`);
+  timeOptions.push(`${hrStr}:30`);
+}
 
 interface GuildHallProps {
   currentProfile: Profile;
@@ -57,6 +88,192 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const [summonText, setSummonText] = useState('Semua staf berkumpul di Round Table sekarang!');
   const [showTickerInput, setShowTickerInput] = useState(false);
   const [tempTicker, setTempTicker] = useState(broadcastTicker);
+
+  // Google Calendar Integration States
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [calendarTab, setCalendarTab] = useState<'view' | 'add'>('view');
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarSuccess, setCalendarSuccess] = useState<string | null>(null);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+
+  // Custom DateTime Picker States
+  const [calendarTitle, setCalendarTitle] = useState('');
+  const [calendarDescription, setCalendarDescription] = useState('');
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(new Date());
+  
+  // Google Forms-like time fields
+  const [startHour, setStartHour] = useState('10');
+  const [startMinute, setStartMinute] = useState('00');
+  const [endHour, setEndHour] = useState('11');
+  const [endMinute, setEndMinute] = useState('00');
+  
+  const [openPicker, setOpenPicker] = useState<'startDate' | 'endDate' | null>(null);
+  const [viewDate, setViewDate] = useState<Date>(new Date());
+
+  // Input refs for automatic keyboard focus routing
+  const startMinRef = useRef<HTMLInputElement>(null);
+  const endMinRef = useRef<HTMLInputElement>(null);
+
+  // Set default rounded time on modal open
+  useEffect(() => {
+    if (showCalendarModal) {
+      setCalendarTitle('');
+      setCalendarDescription('');
+      setCalendarSuccess(null);
+      setCalendarError(null);
+      setOpenPicker(null);
+      
+      const now = new Date();
+      // Round minutes to nearest 30 mins
+      const minutes = now.getMinutes();
+      let roundedMinutes = 0;
+      if (minutes > 0 && minutes <= 30) {
+        roundedMinutes = 30;
+      } else if (minutes > 30) {
+        roundedMinutes = 0;
+        now.setHours(now.getHours() + 1);
+      }
+      now.setMinutes(roundedMinutes);
+      now.setSeconds(0);
+      now.setMilliseconds(0);
+
+      const startHr = now.getHours().toString().padStart(2, '0');
+      const startMin = now.getMinutes().toString().padStart(2, '0');
+      setStartHour(startHr);
+      setStartMinute(startMin);
+      setStartDate(new Date(now));
+      setViewDate(new Date(now));
+
+      // End time is start time + 1 hour
+      const endNow = new Date(now.getTime() + 60 * 60 * 1000);
+      const endHr = endNow.getHours().toString().padStart(2, '0');
+      const endMin = endNow.getMinutes().toString().padStart(2, '0');
+      setEndHour(endHr);
+      setEndMinute(endMin);
+      setEndDate(new Date(endNow));
+    }
+  }, [showCalendarModal]);
+
+  const handleSubmitCalendar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCalendarLoading(true);
+    setCalendarError(null);
+    setCalendarSuccess(null);
+
+    const formatDateStr = (d: Date) => {
+      const year = d.getFullYear();
+      const month = (d.getMonth() + 1).toString().padStart(2, '0');
+      const date = d.getDate().toString().padStart(2, '0');
+      return `${year}-${month}-${date}`;
+    };
+
+    const paddedStartHr = startHour.trim().padStart(2, '0');
+    const paddedStartMin = startMinute.trim().padStart(2, '0');
+    const paddedEndHr = endHour.trim().padStart(2, '0');
+    const paddedEndMin = endMinute.trim().padStart(2, '0');
+
+    // Validation: 00:00 <= time <= 23:59
+    const startHrNum = Number(paddedStartHr);
+    const startMinNum = Number(paddedStartMin);
+    const endHrNum = Number(paddedEndHr);
+    const endMinNum = Number(paddedEndMin);
+
+    if (
+      startHour.trim() === '' || startMinute.trim() === '' ||
+      endHour.trim() === '' || endMinute.trim() === '' ||
+      isNaN(startHrNum) || startHrNum < 0 || startHrNum > 23 ||
+      isNaN(startMinNum) || startMinNum < 0 || startMinNum > 59 ||
+      isNaN(endHrNum) || endHrNum < 0 || endHrNum > 23 ||
+      isNaN(endMinNum) || endMinNum < 0 || endMinNum > 59
+    ) {
+      setCalendarError("Format waktu tidak valid! Gunakan angka 00-23 untuk jam dan 00-59 untuk menit.");
+      setCalendarLoading(false);
+      return;
+    }
+
+    const startTimeCombined = `${formatDateStr(startDate)}T${paddedStartHr}:${paddedStartMin}`;
+    const endTimeCombined = `${formatDateStr(endDate)}T${paddedEndHr}:${paddedEndMin}`;
+
+    const payload = {
+      title: calendarTitle.trim(),
+      startTime: startTimeCombined,
+      endTime: endTimeCombined,
+      description: calendarDescription.trim()
+    };
+
+    if (!payload.title) {
+      setCalendarError("Semua kolom bertanda * wajib diisi!");
+      setCalendarLoading(false);
+      return;
+    }
+
+    const start = new Date(payload.startTime);
+    const end = new Date(payload.endTime);
+    if (end <= start) {
+      setCalendarError("Waktu selesai harus setelah waktu mulai!");
+      setCalendarLoading(false);
+      return;
+    }
+
+    // fallback simulation for local testing when mock mode is active
+    if (isMock) {
+      console.log("Mock Mode Active: Simulating calendar insert with payload:", payload);
+      setTimeout(() => {
+        const existing = JSON.parse(localStorage.getItem('mock_calendar_events') || '[]');
+        const mockEvent = {
+          id: 'mock_' + Date.now(),
+          ...payload,
+          htmlLink: 'https://calendar.google.com'
+        };
+        localStorage.setItem('mock_calendar_events', JSON.stringify([...existing, mockEvent]));
+
+        setCalendarSuccess("Rapat berhasil dijadwalkan! (Simulasi Offline/Local)");
+        setCalendarTitle('');
+        setCalendarDescription('');
+        setCalendarLoading(false);
+      }, 1000);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase!.functions.invoke('add-calendar-event', {
+        body: payload
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setCalendarSuccess("Jadwal rapat berhasil ditambahkan ke Google Calendar!");
+      setCalendarTitle('');
+      setCalendarDescription('');
+    } catch (err: any) {
+      console.error("Gagal menambahkan ke Google Calendar:", err);
+      let errorMsg = err.message || "Gagal menyambungkan ke Google Calendar.";
+      
+      // Try to parse detailed error payload from Supabase FunctionsHttpError
+      if (err.context && typeof err.context.json === 'function') {
+        try {
+          const body = await err.context.json();
+          if (body && body.error) {
+            errorMsg = body.error;
+          } else if (body && typeof body === 'object') {
+            errorMsg = JSON.stringify(body);
+          }
+        } catch (_) {
+          try {
+            const text = await err.context.text();
+            if (text) errorMsg = text;
+          } catch (__) {}
+        }
+      }
+      
+      setCalendarError(errorMsg);
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
 
   // Local Discord URL State
   const [localDiscordUrl, setLocalDiscordUrl] = useState('');
@@ -449,6 +666,23 @@ export const GuildHall: React.FC<GuildHallProps> = ({
               </div>
             </div>
 
+             {/* CALENDAR BOARD (Google Calendar Integration trigger) */}
+             <div
+               onClick={() => {
+                 playSelect();
+                 setCalendarTab('view');
+                 setShowCalendarModal(true);
+                 handleSeatClick({ id: 'guild_hall_seat_calendar', room_id: 'guild_hall', user_id: null, x: 0, y: 0 });
+               }}
+               style={{ left: '36.5%', top: '4.28%', width: '11.72%', height: '12.5%' }}
+               className="absolute cursor-pointer border-2 border-transparent hover:border-amber-400 hover:bg-amber-400/10 transition-all rounded z-10 group"
+               title="Calendar Board"
+             >
+               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-950/90 text-[8px] text-amber-400 border border-amber-500/50 px-1.5 py-0.5 rounded whitespace-nowrap z-50 pointer-events-none font-bold">
+                 CALENDAR BOARD (KLIK)
+               </div>
+             </div>
+
             {/* ROUND TABLE STATUS PLAQUE */}
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 bg-slate-950/85 border border-amber-600/30 px-3 py-1 rounded-full flex items-center gap-2 text-[10px] text-yellow-100 font-bold shadow-lg">
               <span className="text-amber-500 font-serif">ROUND TABLE</span>
@@ -485,7 +719,7 @@ export const GuildHall: React.FC<GuildHallProps> = ({
             {/* SEATS AND USERS RENDERING */}
             {seats.map((seat) => {
               const occupant = profiles.find(p => p.id === seat.user_id);
-              if (!occupant && (seat.id.includes('notice') || seat.id.includes('scroll'))) {
+              if (!occupant && (seat.id.includes('notice') || seat.id.includes('scroll') || seat.id.includes('calendar'))) {
                 return null;
               }
               // Z-Index depth sorting logic
@@ -752,6 +986,391 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           </div>
         </div>
       )}
+
+      {/* GOOGLE CALENDAR MODAL */}
+      {showCalendarModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4 animate-fade-in">
+          {openPicker && (
+            <div 
+              className="fixed inset-0 z-[2050] bg-transparent" 
+              onClick={() => setOpenPicker(null)}
+            />
+          )}
+          <div 
+            className={`rpg-panel-stone transition-all duration-300 w-full p-6 border-4 border-[#cca566] flex flex-col relative ${
+              calendarTab === 'view' ? 'max-w-4xl h-[80vh]' : 'max-w-xl'
+            }`} 
+            style={{ animation: 'fadeIn 0.15s ease-out' }}
+          >
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-4 flex-shrink-0">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { playClick(); setCalendarTab('view'); }}
+                  className={`px-3 py-1.5 text-[9px] font-bold rpg-font-retro border-2 rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                    calendarTab === 'view'
+                      ? 'border-amber-500 bg-slate-900 text-amber-400'
+                      : 'border-stone-700 bg-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Calendar size={11} /> LIHAT KALENDER
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { playClick(); setCalendarTab('add'); }}
+                  className={`px-3 py-1.5 text-[9px] font-bold rpg-font-retro border-2 rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                    calendarTab === 'add'
+                      ? 'border-amber-500 bg-slate-900 text-amber-400'
+                      : 'border-stone-700 bg-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Plus size={11} /> TAMBAH RAPAT
+                </button>
+              </div>
+              <button onClick={() => { playClick(); setShowCalendarModal(false); }} className="text-slate-400 hover:text-white p-1 cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* TAB 1: LIHAT KALENDER (Iframe kept mounted permanently to prevent reloading) */}
+            <div className={`flex-1 w-full h-full min-h-[300px] ${calendarTab === 'view' ? '' : 'hidden'}`}>
+              <div className="w-full bg-slate-950/80 rounded border border-amber-600/30 p-1 relative h-full min-h-[300px] overflow-hidden">
+                <iframe
+                  src={`https://calendar.google.com/calendar/embed?src=${encodeURIComponent(import.meta.env.VITE_GOOGLE_CALENDAR_ID || 'educatieeeon.sbipb@gmail.com')}&ctz=Asia%2FJakarta&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=1&showCalendars=0&showTld=0`}
+                  style={{ border: 0 }}
+                  width="100%"
+                  height="100%"
+                  frameBorder="0"
+                  scrolling="no"
+                  className="rounded bg-zinc-900 h-full"
+                ></iframe>
+              </div>
+            </div>
+
+            {/* TAB 2: TAMBAH RAPAT (Google Forms-like numeric inputs for Hour:Minute) */}
+            {(() => {
+              const daysArray = getDaysArray(viewDate);
+              return (
+                <form 
+                  onSubmit={handleSubmitCalendar} 
+                  className={`space-y-5 text-xs font-semibold text-stone-300 overflow-y-visible flex-1 pr-1 ${
+                    calendarTab === 'add' ? '' : 'hidden'
+                  }`}
+                >
+                  
+                  {/* Google Calendar-like Title Input */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-5" />
+                    <input
+                      type="text"
+                      required
+                      value={calendarTitle}
+                      onChange={(e) => setCalendarTitle(e.target.value)}
+                      placeholder="Tambahkan judul"
+                      className="flex-1 bg-transparent text-yellow-100 text-lg font-bold border-b border-stone-850 focus:outline-none focus:border-amber-500 placeholder:text-stone-600 py-1"
+                    />
+                  </div>
+
+                  {/* Date & Time Selectors Row */}
+                  <div className="flex items-start gap-3 relative z-50">
+                    <Clock size={14} className="text-[#cca566] mt-2 flex-shrink-0" />
+                    <div className="flex flex-wrap items-center gap-3 text-stone-300 w-full">
+                      
+                      {/* Start Date Picker */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenPicker(openPicker === 'startDate' ? null : 'startDate')}
+                          className="bg-[#16110e] text-yellow-100 border border-amber-600/40 rounded px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-900 transition-colors cursor-pointer"
+                        >
+                          {formatIndonesianDate(startDate)}
+                        </button>
+                        
+                        {openPicker === 'startDate' && (
+                          <div className="absolute top-full left-0 mt-1 bg-slate-950 border-2 border-[#cca566] rounded-lg shadow-2xl p-3 z-[2100] w-64 text-yellow-100">
+                            <div className="flex justify-between items-center mb-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+                                }}
+                                className="p-1 hover:bg-slate-800 rounded text-amber-500 font-bold"
+                              >
+                                &lt;
+                              </button>
+                              <span className="text-xs font-bold text-amber-400 font-mono">
+                                {indonesianMonths[viewDate.getMonth()]} {viewDate.getFullYear()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+                                }}
+                                className="p-1 hover:bg-slate-800 rounded text-amber-500 font-bold"
+                              >
+                                &gt;
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-stone-400 font-bold mb-1">
+                              <div>Sen</div><div>Sel</div><div>Rab</div><div>Kam</div><div>Jum</div><div>Sab</div><div>Min</div>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1">
+                              {daysArray.map((day, idx) => {
+                                if (!day) return <div key={`pad-${idx}`} className="w-7 h-7" />;
+                                const isSelected = startDate.getDate() === day.getDate() &&
+                                                   startDate.getMonth() === day.getMonth() &&
+                                                   startDate.getFullYear() === day.getFullYear();
+                                const isToday = new Date().getDate() === day.getDate() &&
+                                                new Date().getMonth() === day.getMonth() &&
+                                                new Date().getFullYear() === day.getFullYear();
+                                return (
+                                  <button
+                                    key={day.getTime()}
+                                    type="button"
+                                    onClick={() => {
+                                      setStartDate(day);
+                                      if (endDate < day) {
+                                        setEndDate(day);
+                                      }
+                                      setOpenPicker(null);
+                                    }}
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-amber-600 text-stone-950 font-extrabold shadow-md'
+                                        : isToday
+                                          ? 'border border-amber-500 text-amber-500'
+                                          : 'text-stone-300 hover:bg-slate-800'
+                                    }`}
+                                  >
+                                    {day.getDate()}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Start Time (Google Forms Style) */}
+                      <div className="flex items-center gap-1 bg-[#16110e] border border-amber-600/40 rounded px-2.5 py-1">
+                        <input
+                          type="text"
+                          placeholder="HH"
+                          maxLength={2}
+                          value={startHour}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            if (val === '' || (Number(val) >= 0 && Number(val) <= 23)) {
+                              setStartHour(val);
+                              if (val.length === 2 && Number(val) <= 23) {
+                                startMinRef.current?.focus();
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val) setStartHour(val.padStart(2, '0'));
+                          }}
+                          className="bg-transparent text-yellow-100 text-center w-6 focus:outline-none text-xs font-mono font-bold"
+                        />
+                        <span className="text-[#cca566] font-bold font-mono">:</span>
+                        <input
+                          ref={startMinRef}
+                          type="text"
+                          placeholder="MM"
+                          maxLength={2}
+                          value={startMinute}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            if (val === '' || (Number(val) >= 0 && Number(val) <= 59)) {
+                              setStartMinute(val);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val) setStartMinute(val.padStart(2, '0'));
+                          }}
+                          className="bg-transparent text-yellow-100 text-center w-6 focus:outline-none text-xs font-mono font-bold"
+                        />
+                      </div>
+
+                      <span className="text-stone-500 font-bold text-xs px-1 self-center">hingga</span>
+
+                      {/* End Time (Google Forms Style) */}
+                      <div className="flex items-center gap-1 bg-[#16110e] border border-amber-600/40 rounded px-2.5 py-1">
+                        <input
+                          type="text"
+                          placeholder="HH"
+                          maxLength={2}
+                          value={endHour}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            if (val === '' || (Number(val) >= 0 && Number(val) <= 23)) {
+                              setEndHour(val);
+                              if (val.length === 2 && Number(val) <= 23) {
+                                endMinRef.current?.focus();
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val) setEndHour(val.padStart(2, '0'));
+                          }}
+                          className="bg-transparent text-yellow-100 text-center w-6 focus:outline-none text-xs font-mono font-bold"
+                        />
+                        <span className="text-[#cca566] font-bold font-mono">:</span>
+                        <input
+                          ref={endMinRef}
+                          type="text"
+                          placeholder="MM"
+                          maxLength={2}
+                          value={endMinute}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            if (val === '' || (Number(val) >= 0 && Number(val) <= 59)) {
+                              setEndMinute(val);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val) setEndMinute(val.padStart(2, '0'));
+                          }}
+                          className="bg-transparent text-yellow-100 text-center w-6 focus:outline-none text-xs font-mono font-bold"
+                        />
+                      </div>
+
+                      {/* End Date Picker */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenPicker(openPicker === 'endDate' ? null : 'endDate')}
+                          className="bg-[#16110e] text-yellow-100 border border-amber-600/40 rounded px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-900 transition-colors cursor-pointer"
+                        >
+                          {formatIndonesianDate(endDate)}
+                        </button>
+                        
+                        {openPicker === 'endDate' && (
+                          <div className="absolute top-full left-0 mt-1 bg-slate-950 border-2 border-[#cca566] rounded-lg shadow-2xl p-3 z-[2100] w-64 text-yellow-100">
+                            <div className="flex justify-between items-center mb-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+                                }}
+                                className="p-1 hover:bg-slate-800 rounded text-amber-500 font-bold"
+                              >
+                                &lt;
+                              </button>
+                              <span className="text-xs font-bold text-amber-400 font-mono">
+                                {indonesianMonths[viewDate.getMonth()]} {viewDate.getFullYear()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+                                }}
+                                className="p-1 hover:bg-slate-800 rounded text-amber-500 font-bold"
+                              >
+                                &gt;
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-stone-400 font-bold mb-1">
+                              <div>Sen</div><div>Sel</div><div>Rab</div><div>Kam</div><div>Jum</div><div>Sab</div><div>Min</div>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1">
+                              {daysArray.map((day, idx) => {
+                                if (!day) return <div key={`pad-end-${idx}`} className="w-7 h-7" />;
+                                const isSelected = endDate.getDate() === day.getDate() &&
+                                                   endDate.getMonth() === day.getMonth() &&
+                                                   endDate.getFullYear() === day.getFullYear();
+                                const isToday = new Date().getDate() === day.getDate() &&
+                                                new Date().getMonth() === day.getMonth() &&
+                                                new Date().getFullYear() === day.getFullYear();
+                                return (
+                                  <button
+                                    key={day.getTime()}
+                                    type="button"
+                                    onClick={() => {
+                                      setEndDate(day);
+                                      setOpenPicker(null);
+                                    }}
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-amber-600 text-stone-950 font-extrabold shadow-md'
+                                        : isToday
+                                          ? 'border border-amber-500 text-amber-500'
+                                          : 'text-stone-300 hover:bg-slate-800'
+                                    }`}
+                                  >
+                                    {day.getDate()}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Agenda/Description textarea */}
+                  <div className="flex items-start gap-3 relative z-10">
+                    <Info size={14} className="text-[#cca566] mt-2 flex-shrink-0" />
+                    <textarea
+                      value={calendarDescription}
+                      onChange={(e) => setCalendarDescription(e.target.value)}
+                      placeholder="Tambahkan deskripsi atau detail rapat..."
+                      rows={3}
+                      className="bg-[#16110e] text-yellow-100 border border-amber-600/40 rounded p-2 text-xs font-semibold focus:outline-none focus:border-amber-500 placeholder:text-stone-600 w-full resize-none"
+                    />
+                  </div>
+
+                  {calendarError && (
+                    <p className="text-[10px] text-red-500 font-bold bg-red-950/20 border border-red-900/30 p-2 rounded text-left">
+                      [!] {calendarError}
+                    </p>
+                  )}
+
+                  {calendarSuccess && (
+                    <p className="text-[10px] text-green-400 font-bold bg-green-950/20 border border-green-900/30 p-2 rounded text-left animate-pulse">
+                      [OK] {calendarSuccess}
+                    </p>
+                  )}
+
+                  <div className="flex justify-end gap-2.5 pt-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { playClick(); setShowCalendarModal(false); }}
+                      className="px-4 py-2 bg-stone-850 hover:bg-stone-800 text-stone-200 text-xs font-bold rounded transition-all cursor-pointer"
+                    >
+                      BATAL
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={calendarLoading}
+                      className="px-5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-stone-950 font-black text-xs rounded transition-all active:scale-95 shadow-md shadow-amber-900/30 cursor-pointer flex items-center gap-1.5 font-mono"
+                    >
+                      {calendarLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-stone-950" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4}></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          SAVING...
+                        </>
+                      ) : 'KIRIM JADWAL'}
+                    </button>
+                  </div>
+                </form>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+
+
       {/* MUSIC PLAYER CONFIG MODAL */}
       {showMusicModal && currentProfile.role !== 'Staff' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4 animate-fade-in">

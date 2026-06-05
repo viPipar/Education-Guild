@@ -191,7 +191,7 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
     }
 
     return (
-      <svg x="22" y="16" width="30" height="30" viewBox="0 0 44 44">
+      <svg x="18" y="10" width="35" height="35" viewBox="0 0 44 44">
         {petBody}
       </svg>
     );
@@ -215,17 +215,17 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
               alt="pet"
               style={{
                 position: 'absolute',
-                bottom: 0,
-                right: -Math.round(size * 0.35),
-                width: Math.round(size * 0.5),
-                height: Math.round(size * 0.5),
+                bottom: -Math.round(size * 0.05),
+                right: -Math.round(size * 0.45),
+                width: Math.round(size * 0.65),
+                height: Math.round(size * 0.65),
                 objectFit: 'contain',
                 imageRendering: 'pixelated',
               }}
             />
           ) : (
             <svg
-              style={{ position: 'absolute', bottom: 0, right: -Math.round(size * 0.35), width: Math.round(size * 0.5), height: Math.round(size * 0.5) }}
+              style={{ position: 'absolute', bottom: -Math.round(size * 0.05), right: -Math.round(size * 0.45), width: Math.round(size * 0.65), height: Math.round(size * 0.65) }}
               viewBox="0 0 54 54"
               fill="none"
             >
@@ -274,7 +274,7 @@ export const SpriteRenderer: React.FC<SpriteProps> = ({
           petAsset?.image_url ? (
             <image
               href={petAsset.image_url}
-              x="22" y="26" width="24" height="24"
+              x="18" y="20" width="32" height="32"
               style={{ imageRendering: 'pixelated' }}
             />
           ) : (

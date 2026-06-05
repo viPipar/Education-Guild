@@ -387,7 +387,7 @@ export const db = {
 
   getSeatsSync(roomId: string, profiles: Profile[]): Seat[] {
     let count = 22;
-    if (roomId === 'guild_hall') count = 22;
+    if (roomId === 'guild_hall') count = 23;
     else if (roomId === 'carriage' || roomId === 'boat') count = 13;
     else if (roomId === 'tavern') count = 31;
     else if (roomId === 'wilderness') count = 20;
@@ -399,6 +399,7 @@ export const db = {
       if (roomId === 'guild_hall') {
         if (i === 20) seatId = 'guild_hall_seat_notice';
         else if (i === 21) seatId = 'guild_hall_seat_scroll';
+        else if (i === 22) seatId = 'guild_hall_seat_calendar';
       } else if (roomId === 'carriage') {
         if (i === 12) seatId = 'carriage_seat_notice';
       } else if (roomId === 'boat') {
@@ -451,6 +452,8 @@ export const db = {
           x = 10; y = 15;
         } else if (i === 21) {
           x = 50; y = 16;
+        } else if (i === 22) {
+          x = 36.5; y = 16;
         } else {
           const coord = guildHallCoordinates[i] || { x: 50, y: 50 };
           x = coord.x;

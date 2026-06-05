@@ -44,6 +44,70 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSavedFeedback, setShowSavedFeedback] = useState(false);
 
+  // Local Slider State & Debouncing to prevent race condition reverting issues
+  const [localIntensity, setLocalIntensity] = useState<number>(roomConfig?.weather_intensity ?? 0);
+  const [localFilter, setLocalFilter] = useState<number>(roomConfig?.weather_filter ?? 0);
+
+  const lastIntensityUpdateRef = useRef<number>(0);
+  const lastFilterUpdateRef = useRef<number>(0);
+  const intensityDebounceRef = useRef<any>(null);
+  const filterDebounceRef = useRef<any>(null);
+
+  // Sync with props roomConfig if we haven't modified it recently
+  useEffect(() => {
+    if (Date.now() - lastIntensityUpdateRef.current > 1500) {
+      setLocalIntensity(roomConfig?.weather_intensity ?? 0);
+    }
+  }, [roomConfig?.weather_intensity]);
+
+  useEffect(() => {
+    if (Date.now() - lastFilterUpdateRef.current > 1500) {
+      setLocalFilter(roomConfig?.weather_filter ?? 0);
+    }
+  }, [roomConfig?.weather_filter]);
+
+  // Clean up debounce timers and reset on activeRoom changes
+  useEffect(() => {
+    if (intensityDebounceRef.current) clearTimeout(intensityDebounceRef.current);
+    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    
+    lastIntensityUpdateRef.current = 0;
+    lastFilterUpdateRef.current = 0;
+    
+    setLocalIntensity(roomConfig?.weather_intensity ?? 0);
+    setLocalFilter(roomConfig?.weather_filter ?? 0);
+
+    return () => {
+      if (intensityDebounceRef.current) clearTimeout(intensityDebounceRef.current);
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    };
+  }, [activeRoom]);
+
+  const handleIntensityChange = (val: number) => {
+    setLocalIntensity(val);
+    lastIntensityUpdateRef.current = Date.now();
+
+    if (intensityDebounceRef.current) clearTimeout(intensityDebounceRef.current);
+    intensityDebounceRef.current = setTimeout(() => {
+      if (onUpdateRoomConfig) {
+        onUpdateRoomConfig(activeRoom, { weather_intensity: val });
+      }
+    }, 400);
+  };
+
+  const handleFilterChange = (val: number) => {
+    setLocalFilter(val);
+    lastFilterUpdateRef.current = Date.now();
+
+    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    filterDebounceRef.current = setTimeout(() => {
+      if (onUpdateRoomConfig) {
+        onUpdateRoomConfig(activeRoom, { weather_filter: val });
+      }
+    }, 400);
+  };
+
+
   useEffect(() => {
     if (roomConfig?.discord_url !== undefined && !isInputFocused) {
       setLocalDiscordUrl(roomConfig.discord_url);
@@ -73,7 +137,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
-    const intensity = roomConfig?.weather_intensity ?? 0;
+    const intensity = localIntensity;
 
     // Define particles
     interface Particle {
@@ -162,7 +226,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animationId);
     };
-  }, [activeRoom, roomConfig?.weather_intensity]);
+  }, [activeRoom, localIntensity]);
 
   const loadRoomData = async () => {
     const c = await db.getChecklist(activeRoom);
@@ -265,15 +329,11 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 type="range"
                 min="0"
                 max="5"
-                value={roomConfig?.weather_intensity ?? 0}
-                onChange={(e) => {
-                  if (onUpdateRoomConfig) {
-                    onUpdateRoomConfig(activeRoom, { weather_intensity: parseInt(e.target.value) });
-                  }
-                }}
-                className="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-950 rounded-lg appearance-none"
+                value={localIntensity}
+                onChange={(e) => handleIntensityChange(parseInt(e.target.value))}
+                className="w-20 rpg-slider cursor-pointer"
               />
-              <span className="font-bold font-mono text-yellow-400 text-xs w-4">{roomConfig?.weather_intensity ?? 0}</span>
+              <span className="font-bold font-mono text-yellow-400 text-xs w-4">{localIntensity}</span>
             </div>
 
             <div className="flex items-center gap-2 border-r border-slate-800 pr-4">
@@ -283,17 +343,13 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 min="0"
                 max="3"
                 step="1"
-                value={roomConfig?.weather_filter ?? 0}
-                onChange={(e) => {
-                  if (onUpdateRoomConfig) {
-                    onUpdateRoomConfig(activeRoom, { weather_filter: parseInt(e.target.value) });
-                  }
-                }}
-                className="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-950 rounded-lg appearance-none"
+                value={localFilter}
+                onChange={(e) => handleFilterChange(parseInt(e.target.value))}
+                className="w-20 rpg-slider cursor-pointer"
               />
               <span className="font-bold font-mono text-yellow-400 text-[10px] w-20 leading-none">
                 {(() => {
-                  switch (roomConfig?.weather_filter ?? 0) {
+                  switch (localFilter) {
                     case 1: return 'Sore';
                     case 2: return 'Malam';
                     case 3: return 'Badai Petir';
@@ -353,13 +409,13 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
 
                 {/* Weather Filter Overlays */}
-                {roomConfig?.weather_filter === 1 && (
+                {localFilter === 1 && (
                   <div className="absolute inset-0 bg-amber-600/15 pointer-events-none z-15 mix-blend-color-burn" />
                 )}
-                {roomConfig?.weather_filter === 2 && (
+                {localFilter === 2 && (
                   <div className="absolute inset-0 bg-slate-950/50 pointer-events-none z-15 mix-blend-multiply" />
                 )}
-                {roomConfig?.weather_filter === 3 && (
+                {localFilter === 3 && (
                   <>
                     <div className="absolute inset-0 bg-slate-950/60 pointer-events-none z-15 mix-blend-multiply" />
                     <div className="absolute inset-0 bg-white pointer-events-none z-25 mix-blend-overlay animate-lightning" />
@@ -533,13 +589,13 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
 
                 {/* Weather Filter Overlays */}
-                {roomConfig?.weather_filter === 1 && (
+                {localFilter === 1 && (
                   <div className="absolute inset-0 bg-amber-600/15 pointer-events-none z-15 mix-blend-color-burn" />
                 )}
-                {roomConfig?.weather_filter === 2 && (
+                {localFilter === 2 && (
                   <div className="absolute inset-0 bg-slate-950/50 pointer-events-none z-15 mix-blend-multiply" />
                 )}
-                {roomConfig?.weather_filter === 3 && (
+                {localFilter === 3 && (
                   <>
                     <div className="absolute inset-0 bg-slate-950/60 pointer-events-none z-15 mix-blend-multiply" />
                     <div className="absolute inset-0 bg-white pointer-events-none z-25 mix-blend-overlay animate-lightning" />

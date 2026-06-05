@@ -61,6 +61,12 @@ function App() {
   const youtubeIframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [stableMusicParams, setStableMusicParams] = useState<{ url: string; start: number; mute: boolean } | null>(null);
 
+  // Announcement States
+  const [annTargetRoom, setAnnTargetRoom] = useState<string>('guild_hall');
+  const [annMessage, setAnnMessage] = useState<string>('');
+  const [annDuration, setAnnDuration] = useState<number>(10);
+  const [activeAnnouncement, setActiveAnnouncement] = useState<{ targetRoom: string; message: string; duration: number; id: number } | null>(null);
+
   // Fetch all profiles from database
   const refreshProfiles = async () => {
     const data = await db.getProfiles();
@@ -139,6 +145,14 @@ function App() {
         setGlobalMusicUrl(url || '');
         setGlobalMusicStatus(status || 'stopped');
         setGlobalMusicStartedAt(startedAt || 0);
+      } else if (msg.type === 'room_announcement') {
+        const { targetRoom, message, duration } = msg.payload;
+        setActiveAnnouncement({
+          targetRoom,
+          message,
+          duration,
+          id: Date.now()
+        });
       }
     });
 
@@ -174,6 +188,15 @@ function App() {
       );
     }
   }, [isMuted]);
+
+  // Room Announcement Auto-cleanup Timer
+  useEffect(() => {
+    if (!activeAnnouncement) return;
+    const timer = setTimeout(() => {
+      setActiveAnnouncement(null);
+    }, activeAnnouncement.duration * 1000);
+    return () => clearTimeout(timer);
+  }, [activeAnnouncement]);
 
   // Global Timer Countdown Effect
   React.useEffect(() => {
@@ -227,6 +250,18 @@ function App() {
         return { online: false, label: `Offline (${diffDays}h lalu)` };
       }
     }
+  };
+
+  const handleSendAnnouncement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annMessage.trim()) return;
+    playClick();
+    db.broadcast('room_announcement', {
+      targetRoom: annTargetRoom,
+      message: annMessage.trim(),
+      duration: annDuration
+    });
+    setAnnMessage('');
   };
 
   const handleLogin = (profile: Profile) => {
@@ -460,6 +495,54 @@ function App() {
               );
             })}
           </div>
+        )}
+
+        {/* Announcement Input Panel (Director & Manager Only) */}
+        {currentProfile && (currentProfile.role === 'Director' || currentProfile.role === 'Manager') && (
+          <form
+            onSubmit={handleSendAnnouncement}
+            className="flex items-center gap-2 bg-[#2b1f1a]/70 border-2 border-[#cca566]/40 px-3 py-1.5 rounded-lg text-[10px] font-semibold text-slate-200 shadow-md ml-2 flex-wrap md:flex-nowrap"
+          >
+            <span className="text-[#ffd700] uppercase font-bold text-[8px] tracking-wider font-mono">📢 Kirim pesan ke:</span>
+            
+            <select
+              value={annTargetRoom}
+              onChange={(e) => setAnnTargetRoom(e.target.value)}
+              className="bg-[#120a07] text-[#cca566] border border-[#cca566]/40 rounded px-1.5 py-0.5 text-[9px] font-bold focus:outline-none focus:border-yellow-500 cursor-pointer"
+            >
+              <option value="guild_hall">Round Table</option>
+              <option value="carriage">Carriage</option>
+              <option value="boat">Boat</option>
+              <option value="tavern">Tavern</option>
+            </select>
+
+            <input
+              type="text"
+              placeholder="Ketik disini..."
+              value={annMessage}
+              onChange={(e) => setAnnMessage(e.target.value)}
+              maxLength={100}
+              className="bg-[#120a07] text-yellow-50 border border-[#cca566]/40 rounded px-2 py-0.5 text-[9px] w-28 md:w-36 focus:outline-none focus:border-yellow-500 font-sans"
+            />
+
+            <span className="text-slate-400">Selama:</span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={annDuration}
+              onChange={(e) => setAnnDuration(Number(e.target.value))}
+              className="bg-[#120a07] text-yellow-50 border border-[#cca566]/40 rounded px-1 py-0.5 text-[9px] w-9 text-center font-bold focus:outline-none focus:border-yellow-500 font-mono"
+            />
+            <span className="text-slate-400">detik</span>
+
+            <button
+              type="submit"
+              className="bg-amber-600 hover:bg-amber-500 text-stone-900 border border-amber-400 rounded px-2.5 py-0.5 text-[9px] font-bold transition-colors cursor-pointer"
+            >
+              KIRIM
+            </button>
+          </form>
         )}
 
         {/* Player Status HUD Panel & Large Global Timer */}
@@ -918,6 +1001,22 @@ function App() {
           />
         );
       })()}
+
+      {/* Room Announcement Messenger Bird Overlay */}
+      {activeAnnouncement && activeAnnouncement.targetRoom === activeTab && (
+        <div className="announcement-bird-container">
+          <div className="announcement-bird-wrapper flex items-center">
+            <div className="announcement-paper">
+              {activeAnnouncement.message}
+            </div>
+            <img 
+              src="/assets/sprites/bird.gif" 
+              alt="Messenger Bird" 
+              className="announcement-bird-img"
+            />
+          </div>
+        </div>
+      )}
 
     </div>
   );

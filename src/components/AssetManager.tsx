@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { RpgAsset, Rarity, Profile } from '../lib/supabase';
 import { db, DEFAULT_ASSETS } from '../lib/supabase';
-import { Upload, Trash2, Image, Sparkles, ShieldAlert, RefreshCw, Coins, Gift, Edit, Users } from 'lucide-react';
+import { Upload, Trash2, Image, Sparkles, ShieldAlert, RefreshCw, Coins, Gift, Edit, Users, FilePlus } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
 interface AssetManagerProps {
@@ -26,7 +26,7 @@ export const RARITY_CONFIG: Record<Rarity, { label: string; color: string; glow:
   uncommon:  { label: 'Uncommon',  color: 'text-green-300 bg-green-900/40 border-green-600',     glow: '' },
   rare:      { label: 'Rare',      color: 'text-blue-300 bg-blue-900/40 border-blue-500',         glow: '' },
   epic:      { label: 'Epic',      color: 'text-purple-300 bg-purple-900/40 border-purple-500',   glow: 'shadow-[0_0_8px_rgba(168,85,247,0.4)]' },
-  legendary: { label: 'Legendary', color: 'text-yellow-300 bg-yellow-900/40 border-yellow-400',   glow: 'shadow-[0_0_12px_rgba(251,191,36,0.5)]' },
+  legendary: { label: 'Legendary', color: 'text-yellow-300 bg-yellow-900/40 border-yellow-400',    glow: 'shadow-[0_0_12px_rgba(251,191,36,0.5)]' },
 };
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
@@ -69,8 +69,10 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
   const [formLoading, setFormLoading] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Drag and Drop State
+  const [isDragging, setIsDragging] = useState(false);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = async () => {
@@ -93,10 +95,8 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
     return () => unsub();
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // --- File Processing Logic ---
+  const processFile = (file: File) => {
     if (!['image/png', 'image/gif'].includes(file.type)) {
       setFormError('❌ Hanya file PNG dan GIF yang diperbolehkan.');
       return;
@@ -112,6 +112,28 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
     const reader = new FileReader();
     reader.onloadend = () => setFormImageUrl(reader.result as string);
     reader.readAsDataURL(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -191,7 +213,6 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
     onAssetsUpdated();
   };
 
-  // ── Coin handlers ─────────────────────────────────────────────────────────
   const handleGiveCoin = async (userId: string) => {
     const amount = coinAmounts[userId] || 0;
     if (!amount) return;
@@ -213,7 +234,6 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
     setCoinLoading(false);
   };
 
-  // ── User Management handlers ──────────────────────────────────────────────
   const handleSelectUser = (p: Profile) => {
     playSelect();
     setSelectedUserId(p.id);
@@ -318,7 +338,6 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
       {/* ── ASSET PANEL ── */}
       {activePanel === 'assets' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
           {/* LEFT: Upload Form */}
           <div className="rpg-panel-stone flex flex-col gap-4">
             <div className="rpg-plaque -mt-7 self-start flex items-center gap-1.5">
@@ -326,8 +345,6 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
             </div>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-xs font-semibold mt-2">
-
-              {/* Nama */}
               <div>
                 <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">NAMA ASET:</label>
                 <input type="text" placeholder="e.g. Ranger Animasi, Naga Api..."
@@ -336,21 +353,26 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                 />
               </div>
 
-              {/* Tipe */}
-              <div>
-                <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">TIPE ASET:</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['character', 'pet', 'cosmetic'] as const).map(t => (
-                    <button key={t} type="button" onClick={() => { playSelect(); setFormType(t); }}
-                      className={`py-2 rounded border text-[9px] font-bold transition-all ${
-                        formType === t ? 'bg-amber-500 border-amber-300 text-stone-900' : 'bg-[#16110e] border-[#5a3d28] text-slate-300 hover:border-amber-600'
-                      }`}
-                    >{TYPE_LABELS[t]}</button>
-                  ))}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">TIPE ASET:</label>
+                  <select value={formType} onChange={(e) => setFormType(e.target.value as any)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold"
+                  >
+                    <option value="character">Karakter</option>
+                    <option value="pet">Pet</option>
+                    <option value="cosmetic">Kosmetik</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">LEVEL MINIMAL:</label>
+                  <input type="number" min={1} max={100} value={formMinLevel}
+                    onChange={(e) => setFormMinLevel(Number(e.target.value))}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 text-center font-bold"
+                  />
                 </div>
               </div>
 
-              {/* Rarity */}
               <div>
                 <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">RARITY:</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -362,25 +384,12 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                           : 'bg-[#16110e] border-[#5a3d28] text-slate-500 hover:border-amber-600'
                       }`}
                     >
-                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                      {r.toUpperCase()}
                     </button>
                   ))}
                 </div>
-                <div className={`mt-1 text-[8px] font-bold px-2 py-1 rounded border inline-block ${RARITY_CONFIG[formRarity].color} ${RARITY_CONFIG[formRarity].glow}`}>
-                  {RARITY_CONFIG[formRarity].label} dipilih
-                </div>
               </div>
 
-              {/* Level Minimal */}
-              <div>
-                <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">LEVEL MINIMAL:</label>
-                <input type="number" min={1} max={10} value={formMinLevel}
-                  onChange={(e) => setFormMinLevel(Number(e.target.value))}
-                  className="w-24 bg-[#16110e] text-yellow-50 p-2 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 text-center font-bold"
-                />
-              </div>
-
-              {/* Deskripsi */}
               <div>
                 <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">DESKRIPSI (Opsional):</label>
                 <input type="text" placeholder="e.g. Karakter ranger penjaga hutan..."
@@ -389,25 +398,33 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                 />
               </div>
 
-              {/* File Upload */}
+              {/* DRAG AND DROP AREA */}
               <div>
-                <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">FILE GAMBAR (PNG atau GIF, maks 512 KB):</label>
-                <div onClick={() => fileInputRef.current?.click()}
-                  className={`w-full border-2 border-dashed rounded p-4 text-center cursor-pointer transition-all ${
-                    formImageUrl ? 'border-green-500 bg-green-950/20' : 'border-[#5a3d28] hover:border-amber-500 bg-[#16110e]/60'
+                <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1.5">FILE GAMBAR (PNG/GIF):</label>
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`w-full border-2 border-dashed rounded p-6 text-center cursor-pointer transition-all duration-300 ${
+                    isDragging 
+                      ? 'border-amber-400 bg-amber-500/10 scale-[1.02] shadow-[0_0_15px_rgba(251,191,36,0.35)] animate-pulse' 
+                      : formImageUrl 
+                        ? 'border-green-500 bg-green-950/20 hover:border-green-400' 
+                        : 'border-[#5a3d28] hover:border-amber-600 bg-[#16110e]/60'
                   }`}
                 >
                   {formImageUrl ? (
-                    <div className="flex flex-col items-center gap-2">
+                    <div className="flex flex-col items-center gap-2 pointer-events-none">
                       <img src={formImageUrl} alt="preview" className="max-h-20 max-w-full object-contain" style={{ imageRendering: 'pixelated' }} />
                       <span className="text-[9px] text-green-400 font-bold truncate max-w-full">✅ {formImageName}</span>
-                      <span className="text-[8px] text-slate-400">Klik untuk ganti gambar</span>
+                      <span className="text-[8px] text-slate-400 mt-1">Seret file baru atau klik untuk ganti gambar</span>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center gap-2 text-slate-500">
-                      <Image size={28} className="opacity-40" />
-                      <span className="text-[10px] font-bold">Klik untuk pilih file PNG atau GIF Animasi</span>
-                      <span className="text-[8px]">GIF direkomendasikan untuk animasi idle</span>
+                    <div className="flex flex-col items-center gap-2 text-slate-500 pointer-events-none">
+                      {isDragging ? <FilePlus size={28} className="text-amber-500 animate-bounce" /> : <Image size={28} className="opacity-40" />}
+                      <span className="text-[10px] font-bold">{isDragging ? 'LEPASKAN FILE SEKARANG' : 'KLIK ATAU TARIK PNG/GIF KE SINI'}</span>
+                      <span className="text-[8px]">Maksimal ukuran file 512 KB</span>
                     </div>
                   )}
                 </div>
@@ -420,26 +437,12 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
               <div className="flex flex-col gap-2">
                 <button type="submit" disabled={formLoading} className="rpg-btn-game w-full py-3 flex items-center justify-center gap-2 font-bold">
                   <Upload size={12} />
-                  {formLoading ? 'MENYIMPAN KE DATABASE...' : (editingAssetId ? 'SIMPAN PERUBAHAN ASET' : 'TAMBAHKAN ASET KE GUILD')}
+                  {formLoading ? 'MENYIMPAN...' : (editingAssetId ? 'SIMPAN PERUBAHAN' : 'TAMBAHKAN ASET')}
                 </button>
                 {editingAssetId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playClick();
-                      setEditingAssetId(null);
-                      setFormName('');
-                      setFormDescription('');
-                      setFormRarity('common');
-                      setFormMinLevel(1);
-                      setFormImageUrl('');
-                      setFormImageName('');
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    className="w-full py-2 bg-slate-900 border border-slate-700 rounded text-slate-400 hover:text-white hover:bg-slate-800 text-[9px] font-bold transition-colors"
-                  >
-                    BATAL EDIT (TAMBAH ASET BARU)
-                  </button>
+                  <button type="button" onClick={() => { setEditingAssetId(null); setFormImageUrl(''); }}
+                    className="w-full py-2 bg-slate-900 border border-slate-700 rounded text-slate-400 text-[9px] font-bold"
+                  >BATAL EDIT</button>
                 )}
               </div>
             </form>
@@ -464,15 +467,12 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
             </div>
 
             {loading ? (
-              <div className="text-center text-slate-400 py-10 text-xs font-bold animate-pulse">Memuat aset...</div>
+              <div className="text-center text-slate-400 py-10 text-xs font-bold animate-pulse">Memuat...</div>
             ) : (
               <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto pr-1 no-scrollbar">
-
                 {customAssets.length > 0 && (
                   <div>
-                    <p className="text-[8px] text-amber-500 font-bold rpg-font-retro mb-1.5 border-b border-amber-800/30 pb-1">
-                      ASET KUSTOM
-                    </p>
+                    <p className="text-[8px] text-amber-500 font-bold rpg-font-retro mb-1.5 border-b border-amber-800/30 pb-1">ASET KUSTOM</p>
                     {customAssets.map(asset => (
                       <AssetRow key={asset.id} asset={asset} isDefault={false}
                         isDeleting={deletingId === asset.id} onDelete={() => handleDelete(asset)}
@@ -480,20 +480,13 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                     ))}
                   </div>
                 )}
-
                 {builtinAssets.length > 0 && (
                   <div className="mt-2">
-                    <p className="text-[8px] text-slate-500 font-bold rpg-font-retro mb-1.5 border-b border-slate-800/30 pb-1">
-                      ASET BAWAAN
-                    </p>
+                    <p className="text-[8px] text-slate-500 font-bold rpg-font-retro mb-1.5 border-b border-slate-800/30 pb-1">ASET BAWAAN</p>
                     {builtinAssets.map(asset => (
                       <AssetRow key={asset.id} asset={asset} isDefault={true} isDeleting={false} onDelete={() => {}} />
                     ))}
                   </div>
-                )}
-
-                {filteredAssets.length === 0 && !loading && (
-                  <p className="text-[10px] text-slate-500 text-center py-8 font-bold">Belum ada aset untuk tipe ini.</p>
                 )}
               </div>
             )}
@@ -510,11 +503,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
 
           <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
             <p className="text-[9px] text-slate-400 font-semibold">Beri koin ke seluruh anggota atau individual.</p>
-            <button
-              onClick={handleGiveAll}
-              disabled={coinLoading}
-              className="rpg-btn-game flex items-center gap-2 py-2 px-4 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-stone-900 border-amber-400"
-            >
+            <button onClick={handleGiveAll} disabled={coinLoading} className="rpg-btn-game flex items-center gap-2 py-2 px-4 text-xs font-bold">
               <Gift size={12} /> GIVE ALL +10 COIN
             </button>
           </div>
@@ -529,8 +518,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                     <span className="font-bold text-[11px] text-yellow-50 truncate">{p.name}</span>
                     <span className={`text-[7px] font-bold px-1 py-0.5 rounded ${
                       p.role === 'Director' ? 'bg-yellow-900 text-yellow-400' :
-                      p.role === 'Manager'  ? 'bg-blue-900 text-blue-400' :
-                      'bg-slate-800 text-slate-400'
+                      p.role === 'Manager'  ? 'bg-blue-900 text-blue-400' : 'bg-slate-800 text-slate-400'
                     }`}>{p.role}</span>
                   </div>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -539,30 +527,15 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                     <span className="text-[8px] text-slate-500">· LV.{p.level}</span>
                   </div>
                 </div>
-
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <input
-                    type="number"
-                    min={1}
-                    max={9999}
-                    placeholder="Jumlah"
-                    value={coinAmounts[p.id] || ''}
+                  <input type="number" min={1} value={coinAmounts[p.id] || ''}
                     onChange={(e) => setCoinAmounts(prev => ({ ...prev, [p.id]: Number(e.target.value) }))}
-                    className="w-20 bg-[#0f0f13] text-yellow-100 p-1.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 text-center text-xs font-bold"
+                    className="w-20 bg-[#0f0f13] text-yellow-100 p-1.5 rounded border border-[#5a3d28] text-center text-xs font-bold"
                   />
-                  <button
-                    onClick={() => handleGiveCoin(p.id)}
-                    disabled={coinLoading || !coinAmounts[p.id]}
-                    className="rpg-btn-game py-1.5 px-2.5 text-[9px] disabled:opacity-40"
-                  >
-                    BERI
-                  </button>
+                  <button onClick={() => handleGiveCoin(p.id)} disabled={coinLoading || !coinAmounts[p.id]} className="rpg-btn-game py-1.5 px-2.5 text-[9px]">BERI</button>
                 </div>
               </div>
             ))}
-            {profiles.length === 0 && (
-              <p className="text-center text-slate-500 text-xs py-8">Tidak ada anggota ditemukan.</p>
-            )}
           </div>
         </div>
       )}
@@ -570,159 +543,81 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
       {/* ── USER PANEL ── */}
       {activePanel === 'users' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Side: Members List (7 Spans) */}
-          <div className="lg:col-span-7 rpg-panel-stone flex flex-col gap-3 animate-fade-in">
+          <div className="lg:col-span-7 rpg-panel-stone flex flex-col gap-3">
             <div className="rpg-plaque -mt-7 self-start flex items-center gap-1.5">
               <Users size={10} /> ANGGOTA GUILD ({profiles.length})
             </div>
-            
-            <p className="text-[10px] text-slate-400 font-semibold mt-2">
-              Pilih salah satu anggota dari daftar untuk mengedit profil mereka.
-            </p>
-
-            <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto pr-1 no-scrollbar">
+            <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto pr-1 no-scrollbar mt-2">
               {profiles.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => handleSelectUser(p)}
+                <div key={p.id} onClick={() => handleSelectUser(p)}
                   className={`flex items-center gap-3 p-2.5 bg-[#16110e] border rounded cursor-pointer transition-all ${
-                    selectedUserId === p.id
-                      ? 'border-amber-500 bg-amber-950/20'
-                      : 'border-[#5a3d28]/60 hover:border-amber-700/40'
+                    selectedUserId === p.id ? 'border-amber-500 bg-amber-950/20' : 'border-[#5a3d28]/60 hover:border-amber-700/40'
                   }`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-[11px] text-yellow-50 truncate">{p.name}</span>
-                      <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded ${
-                        p.role === 'Director' ? 'bg-yellow-900 text-yellow-400' :
-                        p.role === 'Manager'  ? 'bg-blue-900 text-blue-400' :
-                        'bg-slate-800 text-slate-400'
-                      }`}>{p.role}</span>
-                      <span className="text-[7.5px] bg-[#2b1f1a]/80 text-[#cca566] border border-[#5a3d28]/50 px-1 py-0.5 rounded font-bold font-mono">
-                        {p.sub_div_id}
-                      </span>
+                      <span className="text-[7px] bg-slate-800 text-slate-400 px-1 py-0.5 rounded font-bold uppercase">{p.role}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-400 font-mono">
-                      <span>LV.{p.level}</span>
-                      <span>·</span>
-                      <span className="text-amber-400">🪙 {p.coins ?? 0} koin</span>
-                      <span>·</span>
-                      <span className="italic text-[8px] text-slate-500 truncate max-w-[150px]">"{p.current_status || 'Tidak ada status'}"</span>
+                      <span>LV.{p.level}</span><span>·</span><span className="text-amber-400">🪙 {p.coins ?? 0} koin</span>
                     </div>
                   </div>
                   <div className="text-[9px] font-bold text-amber-500 flex-shrink-0">EDIT &gt;</div>
                 </div>
               ))}
-              {profiles.length === 0 && (
-                <p className="text-center text-slate-500 text-xs py-8">Tidak ada anggota ditemukan.</p>
-              )}
             </div>
           </div>
 
-          {/* Right Side: Edit Form (5 Spans) */}
           <div className="lg:col-span-5 rpg-panel-stone flex flex-col gap-4">
             <div className="rpg-plaque -mt-7 self-start flex items-center gap-1.5">
               <Edit size={10} /> EDIT PROFIL ANGGOTA
             </div>
-
             {selectedUserId ? (
               <form onSubmit={handleUpdateUser} className="flex flex-col gap-3.5 text-xs font-semibold mt-2">
-                {/* ID (Read only) */}
-                <div>
-                  <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">USER ID (READ-ONLY):</label>
-                  <input
-                    type="text"
-                    value={selectedUserId}
-                    disabled
-                    className="w-full bg-[#0d0a08] text-slate-500 p-2 rounded border border-[#5a3d28]/40 font-mono select-all cursor-not-allowed text-[10px]"
-                  />
-                </div>
-
-                {/* Nama */}
                 <div>
                   <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">NAMA ANGGOTA:</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-semibold"
+                  <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:border-amber-500 outline-none"
                   />
                 </div>
-
-                {/* Role */}
                 <div>
                   <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">ROLE:</label>
-                  <select
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value as any)}
-                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold"
+                  <select value={editRole} onChange={(e) => setEditRole(e.target.value as any)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] outline-none"
                   >
-                    <option value="Staff">Staff</option>
-                    <option value="Manager">Manager</option>
-                    <option value="Director">Director</option>
+                    <option value="Staff">Staff</option><option value="Manager">Manager</option><option value="Director">Director</option>
                   </select>
                 </div>
-
-                {/* Sub-divisi */}
                 <div>
                   <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">SUB-DIVISI:</label>
-                  <select
-                    value={editSubDiv}
-                    onChange={(e) => setEditSubDiv(e.target.value as any)}
-                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold"
+                  <select value={editSubDiv} onChange={(e) => setEditSubDiv(e.target.value as any)}
+                    className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] outline-none"
                   >
-                    <option value="Academic">Academic</option>
-                    <option value="Pub">Pub</option>
-                    <option value="Project">Project</option>
-                    <option value="Comp">Comp</option>
-                    <option value="All">All / Guild-wide</option>
+                    <option value="Academic">Academic</option><option value="Pub">Pub</option><option value="Project">Project</option><option value="Comp">Comp</option><option value="All">All</option>
                   </select>
                 </div>
-
-                {/* Level & Koin (Grid) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">LEVEL:</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={editLevel}
-                      onChange={(e) => setEditLevel(Number(e.target.value))}
-                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold text-center"
+                    <input type="number" value={editLevel} onChange={(e) => setEditLevel(Number(e.target.value))}
+                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] text-center"
                     />
                   </div>
                   <div>
                     <label className="block text-[9px] text-slate-400 rpg-font-retro mb-1">KOIN:</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={9999}
-                      value={editCoins}
-                      onChange={(e) => setEditCoins(Number(e.target.value))}
-                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] focus:outline-none focus:border-amber-500 font-bold text-center"
+                    <input type="number" value={editCoins} onChange={(e) => setEditCoins(Number(e.target.value))}
+                      className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] text-center"
                     />
                   </div>
                 </div>
-
                 {userError && <p className="text-[10px] text-red-400 font-bold">{userError}</p>}
                 {userMsg && <p className="text-[10px] text-green-400 font-bold">{userMsg}</p>}
-
-                <button
-                  type="submit"
-                  disabled={userLoading}
-                  className="rpg-btn-game w-full py-3 mt-2 flex items-center justify-center gap-2 font-bold"
-                >
-                  <Edit size={12} />
-                  {userLoading ? 'MEMPERBARUI DATA...' : 'SIMPAN PERUBAHAN ANGGOTA'}
+                <button type="submit" disabled={userLoading} className="rpg-btn-game w-full py-3 mt-2 flex items-center justify-center gap-2 font-bold">
+                  <Edit size={12} /> {userLoading ? 'MEMPERBARUI...' : 'SIMPAN PERUBAHAN'}
                 </button>
               </form>
-            ) : (
-              <div className="text-center text-slate-500 py-16 text-xs font-bold border-2 border-dashed border-[#5a3d28]/35 rounded bg-[#16110e]/20">
-                Silakan pilih anggota di sebelah kiri terlebih dahulu untuk melakukan pengeditan.
-              </div>
-            )}
+            ) : <div className="text-center text-slate-50 py-16 text-xs font-bold border-2 border-dashed border-[#5a3d28]/35 rounded">PILIH ANGGOTA</div>}
           </div>
         </div>
       )}
@@ -730,29 +625,16 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
   );
 };
 
-// ─── Sub-component: Single Asset Row ──────────────────────────────────────────
-interface AssetRowProps {
-  asset: RpgAsset;
-  isDefault: boolean;
-  isDeleting: boolean;
-  onDelete: () => void;
-  onEdit?: () => void;
-}
-
-const AssetRow: React.FC<AssetRowProps> = ({ asset, isDefault, isDeleting, onDelete, onEdit }) => {
-  const typeColor  = TYPE_COLORS[asset.type] || 'text-slate-400 bg-slate-900/30 border-slate-700';
-  const rarConfig  = RARITY_CONFIG[asset.rarity as Rarity] || RARITY_CONFIG.common;
+// ─── Sub-component: AssetRow ──────────────────────────────────────────
+const AssetRow: React.FC<{asset: RpgAsset, isDefault: boolean, isDeleting: boolean, onDelete: () => void, onEdit?: () => void}> = ({ asset, isDefault, isDeleting, onDelete, onEdit }) => {
+  const typeColor = TYPE_COLORS[asset.type] || 'text-slate-400 bg-slate-900/30 border-slate-700';
+  const rarConfig = RARITY_CONFIG[asset.rarity as Rarity] || RARITY_CONFIG.common;
 
   return (
     <div className={`flex items-center gap-3 p-2 bg-[#16110e] border border-[#5a3d28]/60 rounded mb-1.5 hover:border-amber-700/50 transition-all ${rarConfig.glow}`}>
-      <div className="w-10 h-10 bg-black/60 border border-[#5a3d28] rounded flex items-center justify-center flex-shrink-0 overflow-hidden">
-        {asset.image_url ? (
-          <img src={asset.image_url} alt={asset.name} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
-        ) : (
-          <span className="text-slate-600 text-[10px] font-bold">SVG</span>
-        )}
+      <div className="w-10 h-10 bg-black/60 border border-[#5a3d28] rounded flex items-center justify-center overflow-hidden">
+        <img src={asset.image_url} alt="" className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
       </div>
-
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-bold text-[11px] text-yellow-50 truncate">{asset.name}</span>
@@ -761,30 +643,16 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, isDefault, isDeleting, onDel
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-[8px] text-amber-600 font-mono">LV. {asset.min_level}+</span>
-          {asset.description && <span className="text-[8px] text-slate-500 truncate max-w-[120px]">{asset.description}</span>}
         </div>
       </div>
-
       {!isDefault ? (
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {onEdit && (
-            <button onClick={onEdit} type="button"
-              className="p-1.5 bg-amber-950/60 border border-amber-800 rounded text-amber-400 hover:bg-amber-900 hover:text-amber-200 transition-colors"
-              title="Edit Aset"
-            >
-              <Edit size={12} />
-            </button>
-          )}
-          <button onClick={onDelete} disabled={isDeleting}
-            className="p-1.5 bg-red-950/60 border border-red-800 rounded text-red-400 hover:bg-red-900 hover:text-red-200 transition-colors disabled:opacity-40"
-            title="Hapus Aset"
-          >
+        <div className="flex items-center gap-1">
+          {onEdit && <button onClick={onEdit} className="p-1.5 bg-amber-950/60 border border-amber-800 rounded text-amber-400"><Edit size={12} /></button>}
+          <button onClick={onDelete} disabled={isDeleting} className="p-1.5 bg-red-950/60 border border-red-800 rounded text-red-400">
             {isDeleting ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
           </button>
         </div>
-      ) : (
-        <span className="flex-shrink-0 text-[8px] text-slate-600 font-mono px-1.5 py-1 border border-slate-800 rounded">BAWAAN</span>
-      )}
+      ) : <span className="text-[8px] text-slate-600 font-mono px-1.5 py-1 border border-slate-800 rounded">BAWAAN</span>}
     </div>
   );
 };
