@@ -874,10 +874,15 @@ export const Wilderness: React.FC<WildernessProps> = ({
         </div>
 
         {/* Center: Arena */}
-        <div className="lg:col-span-6 bg-[#120505] relative overflow-hidden h-[400px] lg:h-full">
-          {/* Grid texture */}
-          <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
-            style={{ backgroundImage: 'radial-gradient(circle, #dc2626 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
+        <div 
+          className="lg:col-span-6 relative overflow-hidden h-[400px] lg:h-full border-2 border-[#3a1010]"
+          style={{
+            backgroundImage: 'url(/assets/rooms/wilderness_bg.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated'
+          }}
+        >
 
           {/* Boss area indicator (lobby only) */}
           {phase === 'lobby' && (
@@ -902,7 +907,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
                 <div
                   key={seat.id}
                   className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center animate-fade-in"
-                  style={{ left: `${seat.x}%`, top: `${seat.y}%` }}
+                  style={{ left: `${seat.x}%`, top: `${seat.y}%`, zIndex: Math.round(seat.y) }}
                 >
                   {occupant && phase === 'active' && raider ? (
                     /* Active raid: sprite + HP + energy */

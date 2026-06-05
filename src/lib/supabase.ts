@@ -512,11 +512,10 @@ export const db = {
           y = coord.y;
         }
       } else if (roomId === 'wilderness') {
-        // 20 seats in an upward-opening semicircle (bottom half, facing boss above)
-        // arc goes left→top-center→right, y decreases at apex
+        // 20 seats aligned with the colosseum stands/benches in the background image
         const angle = Math.PI * (1 - i / (count - 1)); // π to 0
-        x = Math.round(50 + Math.cos(angle) * 40);
-        y = Math.round(75 - Math.sin(angle) * 28);
+        x = Math.round(50 + Math.cos(angle) * 38);
+        y = Math.round(58 - Math.sin(angle) * 24);
       } else if (roomId === 'tavern') {
         if (i === 26) {
           x = 73; y = 59;
