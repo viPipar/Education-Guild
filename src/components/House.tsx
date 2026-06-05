@@ -42,7 +42,7 @@ export const House: React.FC<HouseProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regName, setRegName] = useState('');
   const [regRole, setRegRole] = useState<'Director' | 'Manager' | 'Staff'>('Staff');
-  const [regSubDiv, setRegSubDiv] = useState<'Academic' | 'Pub' | 'Project' | 'Comp' | 'All'>('Academic');
+  const [regSubDiv, setRegSubDiv] = useState<'Academic & Publication' | 'Project & Competition' | 'All'>('Academic & Publication');
   const [regSuccess, setRegSuccess] = useState('');
   const [regError, setRegError] = useState('');
   const [regLoading, setRegLoading] = useState(false);
@@ -586,10 +586,8 @@ export const House: React.FC<HouseProps> = ({
                       onChange={(e) => setRegSubDiv(e.target.value as any)}
                       className="w-full bg-[#16110e] text-yellow-50 p-1 rounded border border-[#5a3d28] focus:outline-none"
                     >
-                      <option value="Academic">Academic</option>
-                      <option value="Pub">Pub</option>
-                      <option value="Project">Project</option>
-                      <option value="Comp">Comp</option>
+                      <option value="Academic & Publication">Academic & Publication</option>
+                      <option value="Project & Competition">Project & Competition</option>
                       <option value="All">All</option>
                     </select>
                   </div>

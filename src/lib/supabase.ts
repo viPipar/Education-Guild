@@ -24,7 +24,7 @@ export interface Profile {
   id: string;
   name: string;
   role: 'Director' | 'Manager' | 'Staff';
-  sub_div_id: 'Academic' | 'Pub' | 'Project' | 'Comp' | 'All';
+  sub_div_id: 'Academic & Publication' | 'Project & Competition' | 'All';
   level: number;
   coins: number;
   sprite_json: {
@@ -213,7 +213,7 @@ export const DEFAULT_PROFILES: Profile[] = [
     id: 'manager_acad',
     name: 'Alya Nurul (Academic)',
     role: 'Manager',
-    sub_div_id: 'Academic',
+    sub_div_id: 'Academic & Publication',
     level: 5,
     coins: 50,
     sprite_json: { base: 'base_2', hair: 'hair_brown', outfit: 'outfit_blue', accessory: 'glasses' },
@@ -226,7 +226,7 @@ export const DEFAULT_PROFILES: Profile[] = [
     id: 'manager_pub',
     name: 'Budi Prasetyo (Pub)',
     role: 'Manager',
-    sub_div_id: 'Pub',
+    sub_div_id: 'Academic & Publication',
     level: 5,
     coins: 50,
     sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_green', accessory: 'headset' },
@@ -239,7 +239,7 @@ export const DEFAULT_PROFILES: Profile[] = [
     id: 'manager_proj',
     name: 'Citra Dewi (Project)',
     role: 'Manager',
-    sub_div_id: 'Project',
+    sub_div_id: 'Project & Competition',
     level: 5,
     coins: 50,
     sprite_json: { base: 'base_1', hair: 'hair_yellow', outfit: 'outfit_red', accessory: 'none' },
@@ -252,7 +252,7 @@ export const DEFAULT_PROFILES: Profile[] = [
     id: 'manager_comp',
     name: 'Daffa Raditya (Comp)',
     role: 'Manager',
-    sub_div_id: 'Comp',
+    sub_div_id: 'Project & Competition',
     level: 5,
     coins: 50,
     sprite_json: { base: 'base_2', hair: 'hair_grey', outfit: 'outfit_purple', accessory: 'none' },
@@ -262,22 +262,22 @@ export const DEFAULT_PROFILES: Profile[] = [
     last_seen: new Date().toISOString()
   },
   // Staff Academic
-  { id: 'staff_acad_1', name: 'Eka Saputra', role: 'Staff', sub_div_id: 'Academic', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '☕ Minum kopi', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_acad_2', name: 'Farhan Azhar', role: 'Staff', sub_div_id: 'Academic', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🔥 Semangat', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_acad_3', name: 'Gita Lestari', role: 'Staff', sub_div_id: 'Academic', level: 1, coins: 10, sprite_json: { base: 'base_2', hair: 'hair_yellow', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '📝 Menyimak', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_acad_4', name: 'Hari Wijaya', role: 'Staff', sub_div_id: 'Academic', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_red', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '💤 Mengantuk', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_acad_1', name: 'Eka Saputra', role: 'Staff', sub_div_id: 'Academic & Publication', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '☕ Minum kopi', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_acad_2', name: 'Farhan Azhar', role: 'Staff', sub_div_id: 'Academic & Publication', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🔥 Semangat', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_acad_3', name: 'Gita Lestari', role: 'Staff', sub_div_id: 'Academic & Publication', level: 1, coins: 10, sprite_json: { base: 'base_2', hair: 'hair_yellow', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '📝 Menyimak', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_acad_4', name: 'Hari Wijaya', role: 'Staff', sub_div_id: 'Academic & Publication', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_red', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '💤 Mengantuk', current_seat_id: null, last_seen: new Date().toISOString() },
   // Staff Pub
-  { id: 'staff_pub_1', name: 'Indah Kusuma', role: 'Staff', sub_div_id: 'Pub', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🎨 Ngedesain', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_pub_2', name: 'Joko Susilo', role: 'Staff', sub_div_id: 'Pub', level: 1, coins: 10, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '☕ Low Energy', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_pub_3', name: 'Kartika Sari', role: 'Staff', sub_div_id: 'Pub', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_yellow', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '✨ Ready', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_pub_1', name: 'Indah Kusuma', role: 'Staff', sub_div_id: 'Academic & Publication', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🎨 Ngedesain', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_pub_2', name: 'Joko Susilo', role: 'Staff', sub_div_id: 'Academic & Publication', level: 1, coins: 10, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '☕ Low Energy', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_pub_3', name: 'Kartika Sari', role: 'Staff', sub_div_id: 'Academic & Publication', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_yellow', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '✨ Ready', current_seat_id: null, last_seen: new Date().toISOString() },
   // Staff Project
-  { id: 'staff_proj_1', name: 'Luthfi Hakim', role: 'Staff', sub_div_id: 'Project', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '📅 Bikin timeline', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_proj_2', name: 'Mega Utami', role: 'Staff', sub_div_id: 'Project', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '💡 Ada ide', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_proj_3', name: 'Naufal Pratama', role: 'Staff', sub_div_id: 'Project', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_grey', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🍕 Makan dulu', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_proj_1', name: 'Luthfi Hakim', role: 'Staff', sub_div_id: 'Project & Competition', level: 2, coins: 20, sprite_json: { base: 'base_3', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '📅 Bikin timeline', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_proj_2', name: 'Mega Utami', role: 'Staff', sub_div_id: 'Project & Competition', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '💡 Ada ide', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_proj_3', name: 'Naufal Pratama', role: 'Staff', sub_div_id: 'Project & Competition', level: 3, coins: 30, sprite_json: { base: 'base_1', hair: 'hair_grey', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🍕 Makan dulu', current_seat_id: null, last_seen: new Date().toISOString() },
   // Staff Comp
-  { id: 'staff_comp_1', name: 'Sarah Amanda', role: 'Staff', sub_div_id: 'Comp', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🚀 Deploying', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_comp_2', name: 'Taufik Hidayat', role: 'Staff', sub_div_id: 'Comp', level: 3, coins: 30, sprite_json: { base: 'base_3', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '👾 Ngoding game', current_seat_id: null, last_seen: new Date().toISOString() },
-  { id: 'staff_comp_3', name: 'Umam Alfarizi', role: 'Staff', sub_div_id: 'Comp', level: 1, coins: 10, sprite_json: { base: 'base_1', hair: 'hair_red', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🔍 Riset data', current_seat_id: null, last_seen: new Date().toISOString() }
+  { id: 'staff_comp_1', name: 'Sarah Amanda', role: 'Staff', sub_div_id: 'Project & Competition', level: 2, coins: 20, sprite_json: { base: 'base_2', hair: 'hair_black', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🚀 Deploying', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_comp_2', name: 'Taufik Hidayat', role: 'Staff', sub_div_id: 'Project & Competition', level: 3, coins: 30, sprite_json: { base: 'base_3', hair: 'hair_brown', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '👾 Ngoding game', current_seat_id: null, last_seen: new Date().toISOString() },
+  { id: 'staff_comp_3', name: 'Umam Alfarizi', role: 'Staff', sub_div_id: 'Project & Competition', level: 1, coins: 10, sprite_json: { base: 'base_1', hair: 'hair_red', outfit: 'outfit_casual', accessory: 'none' }, pet_id: 'none', current_status: '🔍 Riset data', current_seat_id: null, last_seen: new Date().toISOString() }
 ];
 
 // Seed initial localStorage items if mock
@@ -946,7 +946,7 @@ export const db = {
     }
   },
 
-  async createMember(email: string, password: string, name: string, role: 'Director' | 'Manager' | 'Staff', subDivId: 'Academic' | 'Pub' | 'Project' | 'Comp' | 'All'): Promise<boolean> {
+  async createMember(email: string, password: string, name: string, role: 'Director' | 'Manager' | 'Staff', subDivId: 'Academic & Publication' | 'Project & Competition' | 'All'): Promise<boolean> {
     if (!isMock && supabase) {
       const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
         auth: {

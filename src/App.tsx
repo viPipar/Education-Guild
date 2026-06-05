@@ -12,7 +12,7 @@ import { AssetManager } from './components/AssetManager';
 import { Inventory } from './components/Inventory';
 import { SpriteRenderer } from './components/SpriteRenderer';
 import { Wilderness } from './components/Wilderness';
-import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords, Volume2, VolumeX } from 'lucide-react';
+import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords, Volume2, VolumeX, HelpCircle } from 'lucide-react';
 import { playClick, playSelect } from './lib/audio';
 
 const getYoutubeVideoId = (url?: string): string | null => {
@@ -20,6 +20,113 @@ const getYoutubeVideoId = (url?: string): string | null => {
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? match[2] : null;
+};
+
+const HELP_CONTENT: Record<string, { title: string; desc: string; features: string[] }> = {
+  house: {
+    title: 'House / Members Gate',
+    desc: 'Halaman kustomisasi karakter dan pet RPG kamu sebelum menjelajah ke ruangan lain di Guild.',
+    features: [
+      'Character Customizer: Ganti sprite penampilan karakter RPG sesukamu.',
+      'Pet Stable: Pilih hewan peliharaan (pet) yang bakal nemenin karakter kamu jalan-jalan.',
+      'Warna Nama & Status Emoji: Kustomisasi warna nama dan emoji status aktivitas.',
+      'Update Status Text: Tulis status aktivitas kamu biar anggota lain tau kamu lagi sibuk apa.',
+      'Cozy Room Clicker: Kamar interaktif bertema RPG klasik yang suaranya bisa kamu mainin (klik kasur, chest, api unggun, dll.).',
+      'Tambah Anggota (Director Only): Form pendaftaran akun anggota baru.'
+    ]
+  },
+  guild_hall: {
+    title: 'Round Table (Guild Hall)',
+    desc: 'Aula utama untuk rapat divisi Education secara online dan realtime.',
+    features: [
+      'Setting Background Music: Memutar lagu/musik YouTube secara global ke semua orang yang lagi rapat (bisa Mute/Unmute instan).',
+      'Notice Board (Whiteboard): Papan tulis virtual kolaboratif buat gambar coretan tangan atau nempelin memo/sticky notes bareng-bareng secara realtime.',
+      'Kalender Rapat (Google Calendar): Papan kalender interaktif yang ngebuka modal widescreen isi embed Google Calendar organisasi (tanpa reload pas pindah tab) dan formulir buat tambah rapat dengan Date/Time picker kustom (Google Forms style). Karakter juga bakal otomatis duduk rapi di kursi virtual depan papan kalender pas diklik.',
+      'Scroll of Order: Daftar checklist agenda rapat yang bisa dicentang atau ditambah sama pimpinan rapat.',
+      'Running Text (Ticker): Panel kontrol pimpinan buat ganti-ganti teks pengumuman jalan di bagian bawah layar secara realtime.',
+      'Tombol Discord: Shortcut langsung masuk ke Voice Channel Discord utama.',
+      'Realtime Chat Bubble: Kirim pesan chat yang muncul langsung sebagai balon teks di atas kepala karakter RPG kamu.'
+    ]
+  },
+  carriage: {
+    title: 'Carriage',
+    desc: 'Ruang rapat kecil subdivisi bertema Kereta Berjalan di tengah hutan salju.',
+    features: [
+      'Local Agenda: Agenda agenda lokal khusus untuk subdivisi Carriage.',
+      'Notice Board (Whiteboard): Papan tulis coretan dan sticky notes kolaboratif khusus Carriage.',
+      'Weather & Time Controls: Kontrol pimpinan (Director/Manager) buat ngatur intensitas salju dan filter waktu (Cerah, Sore, Malam, Badai Petir) pake slider kayu emas premium.',
+      'Portal URL: Link dokumen penting (seperti timeline divisi) yang diset oleh pimpinan biar staf tinggal klik.',
+      'Discord Voice Shortcut: Jalan pintas langsung masuk ke Voice Channel Discord Carriage.',
+      'Realtime Chat Bubble: Kirim balon obrolan teks secara realtime.'
+    ]
+  },
+  boat: {
+    title: 'Boat',
+    desc: 'Ruang rapat kecil subdivisi bertema Perahu Dayung yang bergoyang di atas gelombang laut.',
+    features: [
+      'Local Agenda: Agenda agenda lokal khusus untuk subdivisi Boat.',
+      'Notice Board (Whiteboard): Papan tulis coretan dan sticky notes kolaboratif khusus Boat.',
+      'Weather & Time Controls: Kontrol pimpinan buat ngatur deras hujan badai dan filter pencahayaan (Cerah, Sore, Malam, Badai Petir) pake slider.',
+      'Portal URL: Link dokumen subdivisi yang bisa diset langsung.',
+      'Discord Voice Shortcut: Shortcut langsung ke Voice Channel Discord Boat.',
+      'Realtime Chat Bubble: Kirim obrolan teks di atas karakter.'
+    ]
+  },
+  tavern: {
+    title: 'Tavern',
+    desc: 'Kedai santai medieval tempat berkumpul, bermain game, dan melakukan evaluasi.',
+    features: [
+      'Gacha Booster Pack: Beli pack kartu memori pakai koin divisi (kartunya berisi momen-momen berharga tim dengan tingkat kelangkaan basic sampai legendary).',
+      'Papan Catur & Tic-Tac-Toe: Meja permainan mini interaktif tempat karakter kamu bisa duduk buat tanding atau nonton bareng anggota lain.',
+      'NPC Bartender: Pesan minuman virtual secara interaktif.',
+      'Kotak Saran Anonim (Evaluation Ledger): Kirim saran, kritik, atau aspirasi berharga divisi secara 100% anonim langsung ke database.',
+      'Reset Game Gartic: Tombol pimpinan buat ngereset papan skor game board Gartic secara realtime.',
+      'Realtime Chat Bubble: Balon teks di atas kepala karakter.'
+    ]
+  },
+  library: {
+    title: 'Library',
+    desc: 'Galeri arsip dan kenangan berharga divisi Education.',
+    features: [
+      'Corkboards Kenangan: Papan gabus interaktif per tema (seperti Academic & Publication Board) tempat kamu bisa upload foto polaroid kenangan tim, geser posisinya secara bebas, dan kasih caption.'
+    ]
+  },
+  wilderness: {
+    title: 'Wilderness',
+    desc: 'Hutan rimba petualangan tempat seluruh divisi bekerja sama mengalahkan Raid Boss.',
+    features: [
+      'Raid Boss Battle: Lobi pertarungan di mana pimpinan bisa deploy monster bos kustom dengan gambar/GIF pilihan sendiri, dan staf bisa serang (Attack) atau pulihkan darah (Heal) bareng-bareng dengan log realtime.',
+      'Raid Brainstorm: Chat box khusus buat diskusi strategi divisi di sela-sela pertarungan bos.'
+    ]
+  },
+  ledger: {
+    title: 'Ledger (Khusus Director & Manager)',
+    desc: 'Halaman evaluasi khusus pimpinan untuk memantau staf.',
+    features: [
+      'Penilaian Performa Staf: Form penilaian performa bulanan staf untuk 3 indikator utama (Communication, Initiative, Commitment) skala 1-5 beserta catatan evaluasi.',
+      'Analytics Charts: Visualisasi statistik performa rata-rata subdivisi menggunakan Radar/Bar Chart.',
+      'Attendance Logs: Log lengkap jam masuk (clock-in) dan jam keluar (clock-out) kehadiran staf secara harian.',
+      'Reward Coins: Tombol cepat buat ngasih koin penghargaan buat staf berprestasi.'
+    ]
+  },
+  quest: {
+    title: 'Quest Board',
+    desc: 'Papan misi tim bergaya game RPG.',
+    features: [
+      'Daftar Quest: Menampilkan daftar misi aktif berdasarkan kesulitan (Easy dapat 10 koin, Medium dapat 20 koin, Hard dapat 30 koin).',
+      'Manajemen Quest (Director/Manager): Tambah misi baru, edit deskripsi/kesulitan, atau hapus quest yang udah selesai.',
+      'Klaim Koin: Tempat staf klaim koin hadiah setelah menyelesaikan misi divisi.'
+    ]
+  },
+  asset_chamber: {
+    title: 'Asset Chamber (Khusus Director)',
+    desc: 'Ruang khusus Director untuk mengelola aset visual digital game/situs secara dinamis.',
+    features: [
+      'Upload Sprite & Pet: Upload gambar karakter baru langsung ke database (Base64 PNG/GIF) tanpa perlu setup storage eksternal.',
+      'Level & Rarity Gating: Set batasan minimal level dan kelangkaan item biar gacha makin seru.',
+      'Staff Stats Manager: Kontrol pimpinan buat naikin level staf atau ngereset koin.'
+    ]
+  }
 };
 
 function App() {
@@ -31,6 +138,9 @@ function App() {
 
   // Inventory Modal State
   const [showInventory, setShowInventory] = useState(false);
+
+  // Help Modal State
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Summon Notification State
   const [summonNotification, setSummonNotification] = useState<{ show: boolean; text: string }>({ show: false, text: '' });
@@ -1014,6 +1124,88 @@ function App() {
               alt="Messenger Bird" 
               className="announcement-bird-img"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Floating Help Button */}
+      {currentProfile && (
+        <button
+          onClick={() => {
+            playSelect();
+            setShowHelpModal(true);
+          }}
+          className="fixed bottom-4 left-4 md:left-[272px] w-10 h-10 rounded-full bg-slate-900/85 border border-slate-700/60 hover:border-amber-500 hover:bg-slate-800 text-slate-300 hover:text-amber-400 flex items-center justify-center cursor-pointer shadow-lg shadow-black/50 transition-all hover:scale-105 z-40"
+          title="Bantuan Halaman"
+        >
+          <HelpCircle size={20} />
+        </button>
+      )}
+
+      {/* Help Info Modal */}
+      {showHelpModal && currentProfile && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[10000] p-4">
+          <div className="rpg-panel-glass max-w-lg w-full p-6 flex flex-col gap-4 animate-[fadeIn_0.2s_ease-out]">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-amber-600/30 pb-2">
+              <div className="flex items-center gap-2">
+                <HelpCircle size={16} className="text-amber-500" />
+                <span className="text-amber-500 font-bold text-xs uppercase tracking-wide rpg-font-retro">
+                  Informasi Halaman: {HELP_CONTENT[activeTab]?.title || 'Bantuan'}
+                </span>
+              </div>
+              <button 
+                onClick={() => { playClick(); setShowHelpModal(false); }}
+                className="text-slate-400 hover:text-white p-1 rounded bg-slate-900 border border-slate-800 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 no-scrollbar text-xs font-semibold">
+              {/* Apa ini? */}
+              <div className="space-y-1">
+                <h4 className="text-amber-400 font-bold text-[10px] uppercase tracking-wider rpg-font-retro">
+                  - APA INI?
+                </h4>
+                <p className="text-slate-300 leading-relaxed pl-2">
+                  {HELP_CONTENT[activeTab]?.desc || 'Halaman panduan bantuan.'}
+                </p>
+              </div>
+
+              {/* Ada apa saja disini? */}
+              <div className="space-y-2">
+                <h4 className="text-amber-400 font-bold text-[10px] uppercase tracking-wider rpg-font-retro">
+                  - ADA APA SAJA DISINI?
+                </h4>
+                <ul className="space-y-2 pl-2 text-slate-300">
+                  {HELP_CONTENT[activeTab]?.features.map((feat, idx) => {
+                    const parts = feat.split(': ');
+                    const title = parts[0];
+                    const desc = parts.slice(1).join(': ');
+                    return (
+                      <li key={idx} className="leading-relaxed">
+                        <span className="text-amber-100 font-bold">• {title}:</span>{' '}
+                        <span className="text-slate-300">{desc}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end border-t border-amber-600/30 pt-3">
+              <button
+                onClick={() => { playClick(); setShowHelpModal(false); }}
+                className="rpg-btn-game px-4 py-2 text-xs"
+              >
+                TUTUP PANDUAN
+              </button>
+            </div>
+
           </div>
         </div>
       )}

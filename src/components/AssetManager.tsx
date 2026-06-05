@@ -43,7 +43,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState<'Director' | 'Manager' | 'Staff'>('Staff');
-  const [editSubDiv, setEditSubDiv] = useState<'Academic' | 'Pub' | 'Project' | 'Comp' | 'All'>('Academic');
+  const [editSubDiv, setEditSubDiv] = useState<'Academic & Publication' | 'Project & Competition' | 'All'>('Academic & Publication');
   const [editLevel, setEditLevel] = useState(1);
   const [editCoins, setEditCoins] = useState(0);
   const [userMsg, setUserMsg] = useState('');
@@ -594,7 +594,9 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ onAssetsUpdated }) =
                   <select value={editSubDiv} onChange={(e) => setEditSubDiv(e.target.value as any)}
                     className="w-full bg-[#16110e] text-yellow-50 p-2.5 rounded border border-[#5a3d28] outline-none"
                   >
-                    <option value="Academic">Academic</option><option value="Pub">Pub</option><option value="Project">Project</option><option value="Comp">Comp</option><option value="All">All</option>
+                    <option value="Academic & Publication">Academic & Publication</option>
+                    <option value="Project & Competition">Project & Competition</option>
+                    <option value="All">All</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
