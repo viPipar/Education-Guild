@@ -205,12 +205,10 @@ function App() {
     const data = await db.getProfiles();
     setProfiles(data);
     
-    if (currentProfile) {
-      const updated = data.find(p => p.id === currentProfile.id);
-      if (updated) {
-        setCurrentProfile(updated);
-      }
-    }
+    setCurrentProfile(current => {
+      if (!current) return null;
+      return data.find(p => p.id === current.id) || null;
+    });
   };
 
   // Load active session on mount

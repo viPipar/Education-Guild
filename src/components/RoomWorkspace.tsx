@@ -236,7 +236,7 @@ const DriveExplorer: React.FC<DriveExplorerProps> = ({ rootFolderId, onFileClick
           <span className="text-[10px] font-mono font-bold">Memuat...</span>
         </div>
       ) : (
-        <div className="p-2 max-h-[220px] overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        <div className="p-2 max-h-[220px] overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5" style={{ overscrollBehavior: 'contain' }}>
           {files.map(file => {
             const { isFolder, type, embedUrl } = getFileMeta(file);
             let icon = <File size={11} className="text-slate-400" />;
@@ -297,6 +297,66 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
 
   // local file selection in YOUR WORKSPACE
   const [activeLocalFile, setActiveLocalFile] = useState<{ url: string; name: string } | null>(null);
+
+  // Resize workspace height
+  const [workspaceHeight, setWorkspaceHeight] = useState(480);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    if (isHovered || isResizing) {
+      const mainEl = document.querySelector('main');
+      if (!mainEl) return;
+
+      const startScrollTop = mainEl.scrollTop;
+      const startScrollLeft = mainEl.scrollLeft;
+      const startWinTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop;
+      const startWinLeft = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft;
+
+      const handleScroll = () => {
+        if (mainEl.scrollTop !== startScrollTop) {
+          mainEl.scrollTop = startScrollTop;
+        }
+        if (mainEl.scrollLeft !== startScrollLeft) {
+          mainEl.scrollLeft = startScrollLeft;
+        }
+        const currentWinTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop;
+        const currentWinLeft = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft;
+        if (currentWinTop !== startWinTop || currentWinLeft !== startWinLeft) {
+          window.scrollTo(startWinLeft, startWinTop);
+        }
+      };
+
+      mainEl.addEventListener('scroll', handleScroll, { passive: true });
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      return () => {
+        mainEl.removeEventListener('scroll', handleScroll);
+        window.removeEventListener('scroll', handleScroll);
+      };
+    }
+  }, [isHovered, isResizing]);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startY = e.clientY;
+    const startHeight = workspaceHeight;
+
+    const doDrag = (moveEvent: MouseEvent) => {
+      const newHeight = startHeight + (moveEvent.clientY - startY);
+      const maxHeight = window.innerHeight > 0 ? window.innerHeight : 800;
+      setWorkspaceHeight(Math.min(maxHeight, Math.max(300, newHeight)));
+    };
+
+    const stopDrag = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
+  };
 
   // GAPI and GIS auth states for optional picker fallback
   const [gapiLoaded, setGapiLoaded] = useState(false);
@@ -487,8 +547,34 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
     currentProfile.role === 'Director' ||
     currentProfile.role === 'Manager';
 
+  const handleMouseLeave = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+
+    if (x === undefined || y === undefined) {
+      setIsHovered(false);
+      return;
+    }
+
+    const margin = 2;
+    const isOutside =
+      x < (rect.left - margin) ||
+      x > (rect.right + margin) ||
+      y < (rect.top - margin) ||
+      y > (rect.bottom + margin);
+
+    if (isOutside) {
+      setIsHovered(false);
+    }
+  };
+
   return (
-    <div className="mt-3">
+    <div
+      className="mt-3"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={handleMouseLeave}
+    >
       {/* Static Header Bar — Always Open */}
       <div className="w-full flex items-center justify-between px-4 py-2 bg-slate-950 border border-[#cca566]/30 border-b-0 rounded-t-lg text-amber-400 text-xs font-bold rpg-font-retro">
         <span className="flex items-center gap-2">
@@ -575,11 +661,28 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
                     Buka Tab Baru ↗
                   </a>
                 </div>
+                {/* Resize Handle Bar */}
+                <div
+                  onMouseDown={startResize}
+                  className="w-full h-5 bg-slate-900 hover:bg-amber-955 border-b border-[#cca566]/20 cursor-row-resize flex items-center justify-center gap-2 transition-all select-none group text-slate-500 hover:text-amber-400"
+                  title="Geser ke atas/bawah untuk mengubah tinggi layar (pembesaran ke bawah)"
+                >
+                  <div className="w-6 h-0.5 bg-slate-700 group-hover:bg-amber-450 rounded" />
+                  <span className="text-[7.5px] font-mono font-extrabold tracking-widest uppercase">
+                    ⇅ GESER UNTUK RESIZE TINGGI DOKUMEN (EXTEND DOWN) ⇅
+                  </span>
+                  <div className="w-6 h-0.5 bg-slate-700 group-hover:bg-amber-450 rounded" />
+                </div>
+
                 {/* Iframe */}
-                <div className="h-[480px] w-full bg-white relative">
+                <div className="w-full bg-white relative" style={{ height: `${workspaceHeight}px`, overscrollBehavior: 'contain' }}>
+                  {isResizing && (
+                    <div className="absolute inset-0 bg-transparent z-50 cursor-row-resize" />
+                  )}
                   <iframe
                     src={activeLocalFile.url}
                     className="w-full h-full border-0"
+                    style={{ overscrollBehavior: 'contain' }}
                     title={`Preview Local File: ${activeLocalFile.name}`}
                     sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
                   />
@@ -607,30 +710,48 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
               /* Global Collaborative Presentation Iframe View */
               <div className="flex flex-col animate-fade-in">
                 {/* Presentation Status Bar */}
-                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-[#cca566]/20 text-[9.5px] font-bold text-slate-350">
-                  <span className="flex items-center gap-1.5">
-                    <Monitor className="w-3.5 h-3.5 text-green-400 animate-pulse" />
-                    SEDANG MEMPRESENTASIKAN: <strong className="text-yellow-400 truncate max-w-[200px]">{presentation.fileName}</strong>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span>Presenter: <strong className="text-amber-400">{presentation.presenterName}</strong></span>
-                    {isPresenterOrAdmin && (
-                      <button
-                        onClick={stopPresenting}
-                        className="flex items-center gap-1 px-2.5 py-0.5 bg-red-955 hover:bg-red-900 border border-red-800 rounded text-red-400 transition-colors active:scale-95 cursor-pointer font-bold uppercase tracking-wider text-[8.5px]"
-                      >
-                        <Square size={9} fill="currentColor" />
-                        Stop Present
-                      </button>
-                    )}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5 bg-slate-900 border-b border-[#cca566]/20 text-xs font-bold text-slate-300">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="flex items-center gap-1.5 text-slate-100">
+                      <Monitor className="w-4 h-4 text-green-455 animate-pulse flex-shrink-0" />
+                      SEDANG MEMPRESENTASIKAN: <strong className="text-yellow-400 truncate max-w-[300px] sm:max-w-[400px]">{presentation.fileName}</strong>
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Presenter: <strong className="text-amber-455">{presentation.presenterName}</strong>
+                    </span>
                   </div>
+                  {isPresenterOrAdmin && (
+                    <button
+                      onClick={stopPresenting}
+                      className="flex items-center justify-center gap-1.5 px-4 py-2 bg-red-955 hover:bg-red-900 border border-red-800 rounded text-red-400 transition-all active:scale-95 cursor-pointer font-extrabold uppercase tracking-wider text-[9.5px] whitespace-nowrap self-start sm:self-center"
+                    >
+                      <Square size={11} fill="currentColor" className="animate-pulse" />
+                      HENTIKAN PRESENTASI (STOP PRESENT)
+                    </button>
+                  )}
+                </div>
+                {/* Resize Handle Bar */}
+                <div
+                  onMouseDown={startResize}
+                  className="w-full h-5 bg-slate-900 hover:bg-amber-955 border-b border-[#cca566]/20 cursor-row-resize flex items-center justify-center gap-2 transition-all select-none group text-slate-500 hover:text-amber-400"
+                  title="Geser ke atas/bawah untuk mengubah tinggi layar (pembesaran ke bawah)"
+                >
+                  <div className="w-6 h-0.5 bg-slate-700 group-hover:bg-amber-450 rounded" />
+                  <span className="text-[7.5px] font-mono font-extrabold tracking-widest uppercase">
+                    ⇅ GESER UNTUK RESIZE TINGGI DOKUMEN (EXTEND DOWN) ⇅
+                  </span>
+                  <div className="w-6 h-0.5 bg-slate-700 group-hover:bg-amber-450 rounded" />
                 </div>
 
                 {/* Shared Iframe Container */}
-                <div className="h-[480px] w-full bg-white relative">
+                <div className="w-full bg-white relative" style={{ height: `${workspaceHeight}px`, overscrollBehavior: 'contain' }}>
+                  {isResizing && (
+                    <div className="absolute inset-0 bg-transparent z-50 cursor-row-resize" />
+                  )}
                   <iframe
                     src={presentation.fileUrl}
                     className="w-full h-full border-0"
+                    style={{ overscrollBehavior: 'contain' }}
                     title={`Collaborative Shared File: ${presentation.fileName}`}
                     sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
                   />
