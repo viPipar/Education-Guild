@@ -12,7 +12,8 @@ import { AssetManager } from './components/AssetManager';
 import { Inventory } from './components/Inventory';
 import { SpriteRenderer } from './components/SpriteRenderer';
 import { Wilderness } from './components/Wilderness';
-import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords, Volume2, VolumeX, HelpCircle } from 'lucide-react';
+import { TypingDefense } from './components/TypingDefense';
+import { LogOut, Users, Compass, Flame, BookOpen, UserCheck, Star, Home, Ship, X, Sparkles, Sword, Swords, Volume2, VolumeX, HelpCircle, Shield } from 'lucide-react';
 import { playClick, playSelect } from './lib/audio';
 
 const getYoutubeVideoId = (url?: string): string | null => {
@@ -916,6 +917,7 @@ function App() {
                 { id: 'tavern', name: 'Tavern', icon: Flame },
                 { id: 'library', name: 'Library', icon: BookOpen },
                 { id: 'wilderness', name: 'Wilderness', icon: Swords },
+                { id: 'defense', name: 'Typing Defense', icon: Shield },
                 currentProfile.role !== 'Staff' ? { id: 'ledger', name: 'Ledger', icon: UserCheck } : null,
                 { id: 'quest', name: 'Quest Board', icon: Star },
                 currentProfile.role === 'Director' ? { id: 'asset_chamber', name: 'Asset Chamber', icon: Sparkles } : null,
@@ -1031,6 +1033,12 @@ function App() {
                     profiles={profiles}
                     onUpdateProfile={handleUpdateProfile}
                     onSeatClick={(seatId, isLeave) => handleSeatClick('wilderness', seatId, currentProfile.id, isLeave)}
+                  />
+                )}
+                {activeTab === 'defense' && (
+                  <TypingDefense
+                    currentProfile={currentProfile}
+                    profiles={profiles}
                   />
                 )}
                 {activeTab === 'asset_chamber' && currentProfile.role === 'Director' && (

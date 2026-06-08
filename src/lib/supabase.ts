@@ -1917,5 +1917,80 @@ export const db = {
     }
     // Broadcast to all clients
     this.broadcast('presentation_sync', { roomId, state });
+  },
+
+  async getTypingQuestions(): Promise<any[]> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('rpg_typing_questions')
+          .select('*')
+          .order('id', { ascending: true });
+        if (!error && data) return data;
+      } catch (e) {
+        console.warn('Failed to fetch typing questions from DB, falling back to mock:', e);
+      }
+    }
+    const stored = localStorage.getItem('rpg_mock_typing_questions');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    const defaults = [
+      { id: '1', soal: 'Ibu kota jepang?', jawaban: 'tokyo' },
+      { id: '2', soal: 'Ibu kota indonesia?', jawaban: 'jakarta' },
+      { id: '3', soal: '15x16', jawaban: '240' },
+      { id: '4', soal: 'heksakosioiheksekontaheksafobia', jawaban: 'heksakosioiheksekontaheksafobia' },
+      { id: '5', soal: '7x8', jawaban: '56' },
+      { id: '6', soal: 'Apa kepanjangan IEEE?', jawaban: 'institute of electrical and electronics engineers' }
+    ];
+    localStorage.setItem('rpg_mock_typing_questions', JSON.stringify(defaults));
+    return defaults;
+  },
+
+  async addTypingQuestion(soal: string, jawaban: string): Promise<any> {
+    const cleanJawaban = jawaban.trim().toLowerCase();
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('rpg_typing_questions')
+          .insert([{ soal, jawaban: cleanJawaban }])
+          .select();
+        if (!error && data) {
+          this.broadcast('typing_questions_update', {});
+          return data[0];
+        }
+      } catch (e) {
+        console.error('Failed to add typing question in DB:', e);
+      }
+    }
+    const list = await this.getTypingQuestions();
+    const newId = String(Date.now());
+    const newItem = { id: newId, soal, jawaban: cleanJawaban };
+    const updated = [...list, newItem];
+    localStorage.setItem('rpg_mock_typing_questions', JSON.stringify(updated));
+    this.broadcast('typing_questions_update', {});
+    return newItem;
+  },
+
+  async deleteTypingQuestion(id: string): Promise<boolean> {
+    if (!isMock && supabase) {
+      try {
+        const { error } = await supabase
+          .from('rpg_typing_questions')
+          .delete()
+          .eq('id', id);
+        if (!error) {
+          this.broadcast('typing_questions_update', {});
+          return true;
+        }
+      } catch (e) {
+        console.error('Failed to delete typing question in DB:', e);
+      }
+    }
+    const list = await this.getTypingQuestions();
+    const updated = list.filter((item: any) => String(item.id) !== String(id));
+    localStorage.setItem('rpg_mock_typing_questions', JSON.stringify(updated));
+    this.broadcast('typing_questions_update', {});
+    return true;
   }
 };
