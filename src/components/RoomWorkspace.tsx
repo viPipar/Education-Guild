@@ -3,8 +3,8 @@ import type { Profile, PresentationState } from '../lib/supabase';
 import { db, isMock, supabase } from '../lib/supabase';
 import { playClick, playSelect } from '../lib/audio';
 import {
-  Share2, Monitor, X, Play, Square, ExternalLink,
-  Link2, Folder, Globe, Loader2, ArrowLeft, ChevronRight,
+  Share2, Monitor, Play, Square,
+  Folder, Globe, Loader2, ArrowLeft, ChevronRight,
   FileText, FileSpreadsheet, File
 } from 'lucide-react';
 
@@ -127,11 +127,9 @@ const DriveExplorer: React.FC<DriveExplorerProps> = ({ rootFolderId, onFileClick
   const [folderPath, setFolderPath] = useState<Array<{ id: string; name: string }>>([]);
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const fetchFiles = async (folderId: string) => {
     setLoading(true);
-    setError('');
     const folderKey = folderId || 'root';
 
     if (isMock || !folderId || folderId.startsWith('mock_') || folderId === 'root' || folderId === 'yours_mock') {
@@ -359,7 +357,6 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
   };
 
   // GAPI and GIS auth states for optional picker fallback
-  const [gapiLoaded, setGapiLoaded] = useState(false);
   const [gisLoaded, setGisLoaded] = useState(false);
   const [tokenClient, setTokenClient] = useState<any>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -372,15 +369,11 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({ driveFolderId, roo
       scriptGapi.async = true;
       scriptGapi.defer = true;
       scriptGapi.onload = () => {
-        window.gapi.load('picker', () => {
-          setGapiLoaded(true);
-        });
+        window.gapi.load('picker', () => {});
       };
       document.body.appendChild(scriptGapi);
     } else {
-      window.gapi.load('picker', () => {
-        setGapiLoaded(true);
-      });
+      window.gapi.load('picker', () => {});
     }
 
     if (!window.google || !window.google.accounts) {

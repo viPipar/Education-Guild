@@ -461,6 +461,18 @@ export const GuildHall: React.FC<GuildHallProps> = ({
     db.saveTimerState(newState);
   };
 
+  const syncTimer = (durationSeconds: number, isRunning: boolean) => {
+    const durationMs = durationSeconds * 1000;
+    const newState: TimerState = {
+      endsAt: isRunning ? Date.now() + durationMs : 0,
+      running: isRunning,
+      pausedRemaining: isRunning ? 0 : durationMs,
+      totalDuration: durationMs
+    };
+    applyTimerState(newState);
+    db.saveTimerState(newState);
+  };
+
   // Timer color class for display
   const getTimerColorClass = () => {
     if (!timerRunning) return 'timer-green';
