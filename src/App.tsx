@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Profile, RoomConfig } from './lib/supabase';
+import type { Profile, RoomConfig, TimerState } from './lib/supabase';
 import { db } from './lib/supabase';
 import { House } from './components/House';
 import { GuildHall } from './components/GuildHall';
@@ -148,11 +148,33 @@ function App() {
   // Master Broadcast Ticker
   const [broadcastTicker, setBroadcastTicker] = useState('Selamat datang di Education Guild! Silakan kustomisasi karakter Anda di House.');
 
-  // Global Timer (synced from GuildHall Director)
-  const [globalTimerDisplay, setGlobalTimerDisplay] = useState('00:00');
+  // Global Timer — absolute timestamp system
+  // endsAt: Unix ms when timer expires (0 = stopped/paused)
+  // pausedRemaining: ms remaining when paused
+  const [globalTimerDisplay, setGlobalTimerDisplay] = useState('15:00');
   const [globalTimerRunning, setGlobalTimerRunning] = useState(false);
-  const globalTimerDurationRef = React.useRef<number>(0);
+  const globalTimerStateRef = React.useRef<TimerState>({ endsAt: 0, running: false, pausedRemaining: 15 * 60 * 1000, totalDuration: 15 * 60 * 1000 });
   const globalTimerIntervalRef = React.useRef<any>(null);
+
+  // Helper: format ms into MM:SS string
+  const formatTimerMs = (ms: number): string => {
+    const totalSecs = Math.max(0, Math.ceil(ms / 1000));
+    const mins = Math.floor(totalSecs / 60).toString().padStart(2, '0');
+    const secs = (totalSecs % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+  };
+
+  // Apply a timer state to local display + running flag
+  const applyTimerState = React.useCallback((state: TimerState) => {
+    globalTimerStateRef.current = state;
+    setGlobalTimerRunning(state.running);
+    if (state.running && state.endsAt > 0) {
+      const remaining = Math.max(0, state.endsAt - Date.now());
+      setGlobalTimerDisplay(formatTimerMs(remaining));
+    } else {
+      setGlobalTimerDisplay(formatTimerMs(state.pausedRemaining));
+    }
+  }, []);
 
   // User Profile Detail Modal State
   const [selectedProfileForDetail, setSelectedProfileForDetail] = useState<Profile | null>(null);
@@ -209,7 +231,7 @@ function App() {
     // Pre-populate the asset cache so SpriteRenderer can read synchronously
     db.refreshAssetsCache();
 
-    // Fetch initial header seat locks, global ticker, and music state
+    // Fetch initial header seat locks, global ticker, music state, and timer
     db.getLockedHeaderSeats().then(setLockedSeats);
     db.getGlobalTicker().then(setBroadcastTicker);
     db.getRoomConfigs().then(setRoomConfigs);
@@ -219,6 +241,10 @@ function App() {
         setGlobalMusicStatus(state.status || 'stopped');
         setGlobalMusicStartedAt(state.startedAt || 0);
       }
+    });
+    // Load persisted timer state from DB so latecomers see correct time
+    db.getTimerState().then(state => {
+      if (state) applyTimerState(state);
     });
 
     // Listen for realtime updates
@@ -242,13 +268,9 @@ function App() {
       } else if (msg.type === 'summon_all') {
         const { announcement } = msg.payload;
         setSummonNotification({ show: true, text: announcement });
-      } else if (msg.type === 'timer_sync') {
-        const { duration, running } = msg.payload;
-        globalTimerDurationRef.current = duration;
-        const mins = Math.floor(duration / 60).toString().padStart(2, '0');
-        const secs = (duration % 60).toString().padStart(2, '0');
-        setGlobalTimerDisplay(`${mins}:${secs}`);
-        setGlobalTimerRunning(running);
+      } else if (msg.type === 'timer_sync_v2') {
+        // New absolute timestamp timer sync
+        applyTimerState(msg.payload as TimerState);
       } else if (msg.type === 'header_seats_lock_update') {
         setLockedSeats(msg.payload.lockedSeats);
       } else if (msg.type === 'round_table_music_sync') {
@@ -324,21 +346,28 @@ function App() {
     return () => clearTimeout(timer);
   }, [activeAnnouncement]);
 
-  // Global Timer Countdown Effect
+  // Global Timer Tick — recalculate from absolute endsAt every 500ms
   React.useEffect(() => {
     clearInterval(globalTimerIntervalRef.current);
     if (!globalTimerRunning) return;
     globalTimerIntervalRef.current = setInterval(() => {
-      globalTimerDurationRef.current = Math.max(0, globalTimerDurationRef.current - 1);
-      const d = globalTimerDurationRef.current;
-      const mins = Math.floor(d / 60).toString().padStart(2, '0');
-      const secs = (d % 60).toString().padStart(2, '0');
-      setGlobalTimerDisplay(`${mins}:${secs}`);
-      if (d <= 0) {
+      const state = globalTimerStateRef.current;
+      if (!state.running || state.endsAt <= 0) {
+        clearInterval(globalTimerIntervalRef.current);
+        setGlobalTimerRunning(false);
+        return;
+      }
+      const remaining = state.endsAt - Date.now();
+      if (remaining <= 0) {
+        setGlobalTimerDisplay('00:00');
         setGlobalTimerRunning(false);
         clearInterval(globalTimerIntervalRef.current);
+        // Update state to stopped
+        globalTimerStateRef.current = { ...state, running: false, endsAt: 0, pausedRemaining: 0 };
+      } else {
+        setGlobalTimerDisplay(formatTimerMs(remaining));
       }
-    }, 1000);
+    }, 500);
     return () => clearInterval(globalTimerIntervalRef.current);
   }, [globalTimerRunning]);
 
@@ -676,15 +705,15 @@ function App() {
           <div className="flex items-center gap-4 flex-wrap justify-end">
             {/* Global Timer (placed on the left of profile, large and prominent) */}
             <div className={`flex flex-col items-center justify-center px-4 py-1 border-2 shadow-lg font-mono rounded-lg min-w-[85px] ${
-              globalTimerRunning && globalTimerDurationRef.current <= 60
+              globalTimerRunning && globalTimerStateRef.current.endsAt > 0 && (globalTimerStateRef.current.endsAt - Date.now()) <= 60000
                 ? 'border-red-600 bg-red-950/80 text-red-400 animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.4)]'
-                : globalTimerRunning && globalTimerDurationRef.current <= 300
+                : globalTimerRunning && globalTimerStateRef.current.endsAt > 0 && (globalTimerStateRef.current.endsAt - Date.now()) <= 300000
                 ? 'border-yellow-600 bg-yellow-950/70 text-yellow-300 shadow-[0_0_10px_rgba(202,138,4,0.3)]'
                 : 'border-[#cca566]/40 bg-black/60 text-amber-400 shadow-inner'
             }`}>
               <span className="text-[7.5px] font-bold uppercase tracking-widest text-slate-400 select-none">TIMER RAPAT</span>
               <span className="text-xl font-bold font-mono tracking-wider leading-none mt-0.5">{globalTimerDisplay}</span>
-              {!globalTimerRunning && globalTimerDisplay !== '00:00' && (
+              {!globalTimerRunning && globalTimerDisplay !== '15:00' && globalTimerDisplay !== '00:00' && (
                 <span className="text-[6px] text-slate-500 font-bold uppercase select-none leading-none mt-1">PAUSED</span>
               )}
             </div>

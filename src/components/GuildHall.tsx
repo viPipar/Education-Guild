@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
+import type { Profile, Seat, ChecklistItem, RoomConfig, AgendaComment, TimerState } from '../lib/supabase';
 import { db, isMock, supabase } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
 import { Play, Pause, RotateCcw, ClipboardList, Plus, Check, X, Trash2, Clock, Info, Music, Calendar } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
+import { RoomWorkspace } from './RoomWorkspace';
 
 const ensureAbsoluteUrl = (url?: string): string => {
   if (!url) return '#';
@@ -77,10 +78,33 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   
-  // Timer State
-  const [timerDuration, setTimerDuration] = useState(15 * 60); // 15 mins
-  const [timerRunning, setTimerRunning] = useState(false);
+  // Agenda Comments State
+  const [agendaComments, setAgendaComments] = useState<AgendaComment[]>([]);
+  const [newCommentText, setNewCommentText] = useState('');
+
+  // Timer State — absolute endsAt system
+  const DEFAULT_DURATION_MS = 15 * 60 * 1000; // 15 minutes in ms
+  const timerStateRef = useRef<TimerState>({ endsAt: 0, running: false, pausedRemaining: DEFAULT_DURATION_MS, totalDuration: DEFAULT_DURATION_MS });
   const [timerDisplay, setTimerDisplay] = useState('15:00');
+  const [timerRunning, setTimerRunning] = useState(false);
+  const timerIntervalRef = useRef<any>(null);
+
+  const formatMs = (ms: number): string => {
+    const totalSecs = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(totalSecs / 60).toString().padStart(2, '0');
+    const s = (totalSecs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  const applyTimerState = (state: TimerState) => {
+    timerStateRef.current = state;
+    setTimerRunning(state.running);
+    if (state.running && state.endsAt > 0) {
+      setTimerDisplay(formatMs(Math.max(0, state.endsAt - Date.now())));
+    } else {
+      setTimerDisplay(formatMs(state.pausedRemaining));
+    }
+  };
   
   // Whiteboard & Scroll of Order Popup States
   const [showWhiteboard, setShowWhiteboard] = useState(false);
@@ -302,13 +326,15 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const [chatMessage, setChatMessage] = useState('');
   const [activeBubbles, setActiveBubbles] = useState<{ [userId: string]: { text: string, timerId: any } }>({});
 
-  // Sync Timer from Director
-  const timerIntervalRef = useRef<any>(null);
-
-  // Fetch seats and checklist
+  // Fetch checklist and agenda comments, subscribe to realtime
   const loadRoomData = async () => {
     const c = await db.getChecklist('guild_hall');
     setChecklist(c);
+    const comments = await db.getAgendaComments('guild_hall');
+    setAgendaComments(comments);
+    // Load timer state from DB
+    const ts = await db.getTimerState();
+    if (ts) applyTimerState(ts);
   };
 
   useEffect(() => {
@@ -320,9 +346,12 @@ export const GuildHall: React.FC<GuildHallProps> = ({
         db.getChecklist('guild_hall').then(setChecklist);
       } else if (msg.type === 'chat_bubble') {
         triggerBubble(msg.payload.userId, msg.payload.text);
-      } else if (msg.type === 'timer_sync') {
-        setTimerDuration(msg.payload.duration);
-        setTimerRunning(msg.payload.running);
+      } else if (msg.type === 'timer_sync_v2') {
+        applyTimerState(msg.payload as TimerState);
+      } else if (msg.type === 'agenda_comment_add' && msg.payload.roomId === 'guild_hall') {
+        setAgendaComments(prev => [...prev, msg.payload.comment]);
+      } else if (msg.type === 'agenda_comments_clear' && msg.payload.roomId === 'guild_hall') {
+        setAgendaComments([]);
       }
     });
 
@@ -332,31 +361,129 @@ export const GuildHall: React.FC<GuildHallProps> = ({
     };
   }, []);
 
-  // Global Timer Tick
+  const autoSeatRef = useRef(false);
   useEffect(() => {
-    if (timerRunning) {
-      timerIntervalRef.current = setInterval(() => {
-        setTimerDuration(prev => {
-          if (prev <= 1) {
-            setTimerRunning(false);
-            clearInterval(timerIntervalRef.current);
-            return 0;
+    if (profiles.length > 0 && !autoSeatRef.current && currentProfile) {
+      autoSeatRef.current = true;
+      const myProfile = profiles.find(p => p.id === currentProfile.id);
+      const currentSeat = myProfile?.current_seat_id;
+      const isSeatedInThisRoom = currentSeat && currentSeat.startsWith('guild_hall');
+      
+      if (!isSeatedInThisRoom) {
+        const chairs = seats.filter(s => !s.id.includes('notice') && !s.id.includes('scroll') && !s.id.includes('calendar'));
+        const availableChairs = chairs.filter(s => !s.user_id);
+        
+        if (availableChairs.length > 0) {
+          const randomSeat = availableChairs[Math.floor(Math.random() * availableChairs.length)];
+          if (onSeatClick) {
+            onSeatClick(randomSeat.id, false);
+          } else {
+            db.claimSeat('guild_hall', randomSeat.id, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
           }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        } else {
+          const overflowSeatId = `guild_hall_overflow_${currentProfile.id}`;
+          if (onSeatClick) {
+            onSeatClick(overflowSeatId, false);
+          } else {
+            db.claimSeat('guild_hall', overflowSeatId, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
+          }
+        }
+      }
     }
+  }, [profiles, currentProfile]);
+
+  // Timer tick — recalculate from absolute endsAt every 500ms
+  useEffect(() => {
+    clearInterval(timerIntervalRef.current);
+    if (!timerRunning) return;
+    timerIntervalRef.current = setInterval(() => {
+      const state = timerStateRef.current;
+      if (!state.running || state.endsAt <= 0) {
+        clearInterval(timerIntervalRef.current);
+        setTimerRunning(false);
+        return;
+      }
+      const remaining = state.endsAt - Date.now();
+      if (remaining <= 0) {
+        setTimerDisplay('00:00');
+        setTimerRunning(false);
+        clearInterval(timerIntervalRef.current);
+        timerStateRef.current = { ...state, running: false, endsAt: 0, pausedRemaining: 0 };
+      } else {
+        setTimerDisplay(formatMs(remaining));
+      }
+    }, 500);
     return () => clearInterval(timerIntervalRef.current);
   }, [timerRunning]);
 
-  // Format Timer
-  useEffect(() => {
-    const mins = Math.floor(timerDuration / 60);
-    const secs = timerDuration % 60;
-    setTimerDisplay(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
-  }, [timerDuration]);
+  // Timer Controls — Director broadcasts absolute endsAt to all clients
+  const handleStartTimer = () => {
+    playClick();
+    const state = timerStateRef.current;
+    const remaining = state.pausedRemaining > 0 ? state.pausedRemaining : state.totalDuration;
+    const newState: TimerState = {
+      endsAt: Date.now() + remaining,
+      running: true,
+      pausedRemaining: 0,
+      totalDuration: state.totalDuration
+    };
+    applyTimerState(newState);
+    db.saveTimerState(newState);
+  };
+
+  const handlePauseTimer = () => {
+    playClick();
+    const state = timerStateRef.current;
+    const remaining = Math.max(0, state.endsAt - Date.now());
+    const newState: TimerState = {
+      endsAt: 0,
+      running: false,
+      pausedRemaining: remaining,
+      totalDuration: state.totalDuration
+    };
+    applyTimerState(newState);
+    db.saveTimerState(newState);
+  };
+
+  const handleResetTimer = () => {
+    playClick();
+    const newState: TimerState = {
+      endsAt: 0,
+      running: false,
+      pausedRemaining: DEFAULT_DURATION_MS,
+      totalDuration: DEFAULT_DURATION_MS
+    };
+    applyTimerState(newState);
+    db.saveTimerState(newState);
+  };
+
+  // Timer color class for display
+  const getTimerColorClass = () => {
+    if (!timerRunning) return 'timer-green';
+    const remaining = timerStateRef.current.endsAt > 0 ? timerStateRef.current.endsAt - Date.now() : timerStateRef.current.pausedRemaining;
+    if (remaining <= 60000) return 'timer-red';
+    if (remaining <= 300000) return 'timer-yellow';
+    return 'timer-green';
+  };
+
+  // Agenda Comments Handlers
+  const handleSendComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCommentText.trim()) return;
+    playClick();
+    await db.addAgendaComment('guild_hall', newCommentText.trim(), currentProfile.id, currentProfile.name);
+    setNewCommentText('');
+  };
+
+  const handleClearComments = async () => {
+    if (!window.confirm('Hapus semua komentar agenda ini?')) return;
+    playClick();
+    await db.clearAgendaComments('guild_hall');
+  };
 
   // Handle Teleport (Claim Seat)
   const handleSeatClick = async (seat: Seat) => {
@@ -377,24 +504,6 @@ export const GuildHall: React.FC<GuildHallProps> = ({
   const handleBroadcastSummon = () => {
     playClick();
     db.broadcast('summon_all', { announcement: summonText, roomId: 'guild_hall' });
-  };
-
-  // Timer Control Panel (Director Only)
-  const syncTimer = (duration: number, running: boolean) => {
-    db.broadcast('timer_sync', { duration, running });
-    setTimerDuration(duration);
-    setTimerRunning(running);
-  };
-
-  const handleStartTimer = () => { playClick(); syncTimer(timerDuration, true); };
-  const handlePauseTimer = () => { playClick(); syncTimer(timerDuration, false); };
-  const handleResetTimer = () => { playClick(); syncTimer(15 * 60, false); };
-  
-  // Get Timer Color based on remaining time
-  const getTimerColorClass = () => {
-    if (timerDuration <= 60) return 'timer-red'; // 1 min
-    if (timerDuration <= 5 * 60) return 'timer-yellow'; // 5 mins
-    return 'timer-green';
   };
 
   // Checklist Action
@@ -782,9 +891,51 @@ export const GuildHall: React.FC<GuildHallProps> = ({
                       <span className="block text-[5px] text-[#cca566] truncate mt-0.5 leading-none">{occupant.current_status}</span>
                     </div>
                   )}
-                </div>
+                 </div>
               );
             })}
+
+            {/* Overflow Characters Container (Bottom Right) */}
+            <div className="absolute bottom-14 right-4 z-40 flex flex-col items-end gap-1 pointer-events-auto">
+              {profiles.filter(p => p.current_seat_id === `guild_hall_overflow_${p.id}`).length > 0 && (
+                <div className="bg-slate-950/85 border-2 border-[#cca566]/40 p-2 rounded-xl flex flex-wrap gap-2 max-w-[180px] justify-end shadow-xl shadow-black/80">
+                  <span className="text-[6.5px] text-red-405 font-extrabold uppercase tracking-widest block w-full text-right select-none font-mono">
+                    OVERFLOW (KURSI PENUH)
+                  </span>
+                  {profiles.filter(p => p.current_seat_id === `guild_hall_overflow_${p.id}`).map(occupant => (
+                    <div key={occupant.id} className="relative flex flex-col items-center group cursor-pointer">
+                      <div className="w-10 h-10 flex items-center justify-center relative hover:scale-110 transition-transform">
+                        {activeBubbles[occupant.id] && (
+                          <div className="speech-bubble">
+                            {activeBubbles[occupant.id].text}
+                          </div>
+                        )}
+                        <SpriteRenderer
+                          base={occupant.sprite_json.base}
+                          hair={occupant.sprite_json.hair}
+                          outfit={occupant.sprite_json.outfit}
+                          accessory={occupant.sprite_json.accessory}
+                          petId={occupant.pet_id}
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
+                          size={44}
+                        />
+                        {occupant.id === currentProfile.id && (
+                          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-green-500 rounded-full border border-white animate-bounce z-50"></div>
+                        )}
+                      </div>
+                      
+                      {/* Name tag on hover */}
+                      <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
+                        <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                          {occupant.name.split(' ')[0]}
+                        </span>
+                        <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             </div>
           </div>
@@ -983,6 +1134,61 @@ export const GuildHall: React.FC<GuildHallProps> = ({
                 </button>
               </form>
             )}
+
+            {/* ─── AGENDA COMMENTS SECTION ─── */}
+            <div className="border-t-2 border-stone-400/30 mt-4 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-stone-800 font-bold text-xs flex items-center gap-1.5">
+                  💬 Diskusi Agenda
+                  <span className="text-[9px] text-stone-500 font-semibold">({agendaComments.length})</span>
+                </h4>
+                {currentProfile.role === 'Director' && agendaComments.length > 0 && (
+                  <button
+                    onClick={handleClearComments}
+                    className="text-[8px] text-red-600 hover:text-red-800 font-bold border border-red-300 hover:border-red-500 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                    title="Clear All Comments (Director Only)"
+                  >
+                    🗑 Clear
+                  </button>
+                )}
+              </div>
+              {/* Comments List */}
+              <div className="max-h-[180px] overflow-y-auto space-y-1.5 pr-1 mb-2">
+                {agendaComments.length === 0 ? (
+                  <p className="text-[10px] text-stone-400 italic text-center py-3">Belum ada diskusi...</p>
+                ) : (
+                  agendaComments.map(c => (
+                    <div key={c.id} className="flex items-start gap-1.5 bg-white/60 rounded px-2 py-1.5 border border-stone-300/50">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[8px] font-bold text-amber-800">{c.author_name}</span>
+                        <span className="text-[7px] text-stone-400 ml-1">
+                          {new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <p className="text-[10px] text-stone-800 font-semibold mt-0.5 break-words leading-snug">{c.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* Comment Input */}
+              <form onSubmit={handleSendComment} className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="Tulis komentar/diskusi..."
+                  value={newCommentText}
+                  onChange={(e) => setNewCommentText(e.target.value)}
+                  maxLength={200}
+                  className="flex-1 bg-white text-stone-900 px-2 py-1 rounded border border-stone-300 text-[10px] font-semibold focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!newCommentText.trim()}
+                  className="bg-amber-600 hover:bg-amber-500 text-white text-[9px] font-bold px-2.5 py-1 rounded border border-amber-400 disabled:opacity-40 transition-colors cursor-pointer"
+                >
+                  KIRIM
+                </button>
+              </form>
+            </div>
             
           </div>
         </div>
@@ -1448,6 +1654,14 @@ export const GuildHall: React.FC<GuildHallProps> = ({
           </div>
         </div>
       )}
+
+      {/* Drive Workspace — below all room content */}
+      <RoomWorkspace
+        driveFolderId={import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID || ''}
+        roomLabel="Round Table"
+        roomId="guild_hall"
+        currentProfile={currentProfile}
+      />
 
     </div>
   );

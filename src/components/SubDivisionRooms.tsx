@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Profile, Seat, ChecklistItem, RoomConfig } from '../lib/supabase';
+import type { Profile, Seat, ChecklistItem, RoomConfig, AgendaComment } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
 import { ClipboardList, Plus, Check, Trash2 } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 import { NoticeBoard } from './NoticeBoard';
+import { RoomWorkspace } from './RoomWorkspace';
 
 const ensureAbsoluteUrl = (url?: string): string => {
   if (!url) return '#';
@@ -38,6 +39,10 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [showWhiteboard, setShowWhiteboard] = useState(false);
+
+  // Agenda Comments State
+  const [agendaComments, setAgendaComments] = useState<AgendaComment[]>([]);
+  const [newCommentText, setNewCommentText] = useState('');
 
   // Local Discord URL State
   const [localDiscordUrl, setLocalDiscordUrl] = useState('');
@@ -231,6 +236,8 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
   const loadRoomData = async () => {
     const c = await db.getChecklist(activeRoom);
     setChecklist(c);
+    const comments = await db.getAgendaComments(activeRoom);
+    setAgendaComments(comments);
   };
 
   useEffect(() => {
@@ -241,11 +248,50 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
         db.getChecklist(activeRoom).then(setChecklist);
       } else if (msg.type === 'chat_bubble') {
         triggerBubble(msg.payload.userId, msg.payload.text);
+      } else if (msg.type === 'agenda_comment_add' && msg.payload.roomId === activeRoom) {
+        setAgendaComments(prev => [...prev, msg.payload.comment]);
+      } else if (msg.type === 'agenda_comments_clear' && msg.payload.roomId === activeRoom) {
+        setAgendaComments([]);
       }
     });
 
     return () => unsubscribe();
   }, [activeRoom]);
+
+  const autoSeatRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    if (profiles.length > 0 && !autoSeatRef.current[activeRoom] && currentProfile) {
+      autoSeatRef.current[activeRoom] = true;
+      const myProfile = profiles.find(p => p.id === currentProfile.id);
+      const currentSeat = myProfile?.current_seat_id;
+      const isSeatedInThisRoom = currentSeat && currentSeat.startsWith(activeRoom);
+      
+      if (!isSeatedInThisRoom) {
+        const chairs = seats.filter(s => !s.id.includes('notice'));
+        const availableChairs = chairs.filter(s => !s.user_id);
+        
+        if (availableChairs.length > 0) {
+          const randomSeat = availableChairs[Math.floor(Math.random() * availableChairs.length)];
+          if (onSeatClick) {
+            onSeatClick(randomSeat.id, false);
+          } else {
+            db.claimSeat(activeRoom, randomSeat.id, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
+          }
+        } else {
+          const overflowSeatId = `${activeRoom}_overflow_${currentProfile.id}`;
+          if (onSeatClick) {
+            onSeatClick(overflowSeatId, false);
+          } else {
+            db.claimSeat(activeRoom, overflowSeatId, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
+          }
+        }
+      }
+    }
+  }, [profiles, currentProfile, activeRoom]);
 
   const handleSeatClick = async (seat: Seat) => {
     playSelect();
@@ -577,6 +623,46 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                   );
                 })}
 
+                {/* Overflow Characters Container (Carriage Bottom Right) */}
+                <div className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-1 pointer-events-auto">
+                  {profiles.filter(p => p.current_seat_id === `carriage_overflow_${p.id}`).length > 0 && (
+                    <div className="bg-slate-950/85 border-2 border-[#cca566]/40 p-2 rounded-xl flex flex-wrap gap-2 max-w-[180px] justify-end shadow-xl shadow-black/80 animate-fade-in">
+                      <span className="text-[6.5px] text-red-405 font-extrabold uppercase tracking-widest block w-full text-right select-none font-mono">
+                        OVERFLOW (KURSI PENUH)
+                      </span>
+                      {profiles.filter(p => p.current_seat_id === `carriage_overflow_${p.id}`).map(occupant => (
+                        <div key={occupant.id} className="relative flex flex-col items-center group cursor-pointer">
+                          <div className="w-9 h-9 flex items-center justify-center relative hover:scale-110 transition-transform">
+                            {activeBubbles[occupant.id] && (
+                              <div className="speech-bubble">
+                                {activeBubbles[occupant.id].text}
+                              </div>
+                            )}
+                            <SpriteRenderer
+                              base={occupant.sprite_json.base}
+                              hair={occupant.sprite_json.hair}
+                              outfit={occupant.sprite_json.outfit}
+                              accessory={occupant.sprite_json.accessory}
+                              petId={occupant.pet_id}
+                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              size={38}
+                            />
+                            {occupant.id === currentProfile.id && (
+                              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full border border-white animate-bounce z-50"></div>
+                            )}
+                          </div>
+                          <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
+                            <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                              {occupant.name.split(' ')[0]}
+                            </span>
+                            <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
           </div>
@@ -762,6 +848,46 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                   );
                 })}
 
+                {/* Overflow Characters Container (Boat Bottom Right) */}
+                <div className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-1 pointer-events-auto">
+                  {profiles.filter(p => p.current_seat_id === `boat_overflow_${p.id}`).length > 0 && (
+                    <div className="bg-slate-950/85 border-2 border-[#cca566]/40 p-2 rounded-xl flex flex-wrap gap-2 max-w-[180px] justify-end shadow-xl shadow-black/80 animate-fade-in">
+                      <span className="text-[6.5px] text-red-405 font-extrabold uppercase tracking-widest block w-full text-right select-none font-mono">
+                        OVERFLOW (KURSI PENUH)
+                      </span>
+                      {profiles.filter(p => p.current_seat_id === `boat_overflow_${p.id}`).map(occupant => (
+                        <div key={occupant.id} className="relative flex flex-col items-center group cursor-pointer">
+                          <div className="w-9 h-9 flex items-center justify-center relative hover:scale-110 transition-transform">
+                            {activeBubbles[occupant.id] && (
+                              <div className="speech-bubble">
+                                {activeBubbles[occupant.id].text}
+                              </div>
+                            )}
+                            <SpriteRenderer
+                              base={occupant.sprite_json.base}
+                              hair={occupant.sprite_json.hair}
+                              outfit={occupant.sprite_json.outfit}
+                              accessory={occupant.sprite_json.accessory}
+                              petId={occupant.pet_id}
+                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              size={38}
+                            />
+                            {occupant.id === currentProfile.id && (
+                              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full border border-white animate-bounce z-50"></div>
+                            )}
+                          </div>
+                          <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
+                            <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                              {occupant.name.split(' ')[0]}
+                            </span>
+                            <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
           </div>
@@ -853,6 +979,69 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                 </button>
               </form>
             )}
+
+            {/* ─── AGENDA COMMENTS SECTION ─── */}
+            <div className="border-t-2 border-stone-400/30 mt-4 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-stone-800 font-bold text-xs flex items-center gap-1.5">
+                  💬 Diskusi Lokal
+                  <span className="text-[9px] text-stone-500 font-semibold">({agendaComments.length})</span>
+                </h4>
+                {currentProfile.role === 'Director' && agendaComments.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('Hapus semua komentar?')) return;
+                      await db.clearAgendaComments(activeRoom);
+                    }}
+                    className="text-[8px] text-red-600 hover:text-red-800 font-bold border border-red-300 hover:border-red-500 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                  >
+                    🗑 Clear
+                  </button>
+                )}
+              </div>
+              <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1 mb-2">
+                {agendaComments.length === 0 ? (
+                  <p className="text-[10px] text-stone-400 italic text-center py-3">Belum ada diskusi...</p>
+                ) : (
+                  agendaComments.map(c => (
+                    <div key={c.id} className="flex items-start gap-1.5 bg-white/60 rounded px-2 py-1.5 border border-stone-300/50">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[8px] font-bold text-amber-800">{c.author_name}</span>
+                        <span className="text-[7px] text-stone-400 ml-1">
+                          {new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <p className="text-[10px] text-stone-800 font-semibold mt-0.5 break-words leading-snug">{c.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newCommentText.trim()) return;
+                  await db.addAgendaComment(activeRoom, newCommentText.trim(), currentProfile.id, currentProfile.name);
+                  setNewCommentText('');
+                }}
+                className="flex gap-1.5"
+              >
+                <input
+                  type="text"
+                  placeholder="Tulis komentar..."
+                  value={newCommentText}
+                  onChange={(e) => setNewCommentText(e.target.value)}
+                  maxLength={200}
+                  className="flex-1 bg-white/80 text-stone-900 px-2 py-1 rounded border border-stone-300 text-[10px] font-semibold focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!newCommentText.trim()}
+                  className="bg-amber-600 hover:bg-amber-500 text-white text-[9px] font-bold px-2 py-1 rounded border border-amber-400 disabled:opacity-40 transition-colors cursor-pointer"
+                >
+                  KIRIM
+                </button>
+              </form>
+            </div>
           </div>
         </div>
 
@@ -866,6 +1055,14 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
           profiles={profiles}
         />
       )}
+
+      {/* Drive Workspace — below all room content */}
+      <RoomWorkspace
+        driveFolderId={import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID || ''}
+        roomLabel={activeRoom === 'carriage' ? 'Moving Carriage' : 'Rowing Boat'}
+        roomId={activeRoom}
+        currentProfile={currentProfile}
+      />
 
     </div>
   );

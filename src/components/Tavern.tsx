@@ -7,6 +7,7 @@ import { Coins, Sparkles, X, Gamepad2, Package, MessageSquare, Send, Brush, Eras
 import { playClick, playSelect } from '../lib/audio';
 
 
+
 const ensureAbsoluteUrl = (url?: string): string => {
   if (!url) return '#';
   const trimmed = url.trim();
@@ -70,7 +71,48 @@ export const Tavern: React.FC<TavernProps> = ({
   onUpdateRoomConfig,
 }) => {
   const seats = React.useMemo(() => db.getSeatsSync('tavern', profiles), [profiles]);
-  
+
+  const autoSeatRef = useRef(false);
+  useEffect(() => {
+    if (profiles.length > 0 && !autoSeatRef.current && currentProfile) {
+      autoSeatRef.current = true;
+      const myProfile = profiles.find(p => p.id === currentProfile.id);
+      const currentSeat = myProfile?.current_seat_id;
+      const isSeatedInThisRoom = currentSeat && currentSeat.startsWith('tavern');
+      
+      if (!isSeatedInThisRoom) {
+        const chairs = seats.filter(s => 
+          !s.id.includes('gartic') &&
+          !s.id.includes('ttt') &&
+          !s.id.includes('chess') &&
+          !s.id.includes('gacha') &&
+          !s.id.includes('kasir')
+        );
+        const availableChairs = chairs.filter(s => !s.user_id);
+        
+        if (availableChairs.length > 0) {
+          const randomSeat = availableChairs[Math.floor(Math.random() * availableChairs.length)];
+          if (onSeatClick) {
+            onSeatClick(randomSeat.id, false);
+          } else {
+            db.claimSeat('tavern', randomSeat.id, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
+          }
+        } else {
+          const overflowSeatId = `tavern_overflow_${currentProfile.id}`;
+          if (onSeatClick) {
+            onSeatClick(overflowSeatId, false);
+          } else {
+            db.claimSeat('tavern', overflowSeatId, currentProfile.id).then(() => {
+              onRefreshProfiles();
+            });
+          }
+        }
+      }
+    }
+  }, [profiles, currentProfile]);
+
   // Interactive Modals
   const [showGacha, setShowGacha] = useState(false);
   const [showGame, setShowGame] = useState(false);
@@ -2020,6 +2062,46 @@ export const Tavern: React.FC<TavernProps> = ({
               );
             })}
 
+            {/* Overflow Characters Container (Bottom Right) */}
+            <div className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-1 pointer-events-auto">
+              {profiles.filter(p => p.current_seat_id === `tavern_overflow_${p.id}`).length > 0 && (
+                <div className="bg-slate-950/85 border-2 border-[#cca566]/40 p-2 rounded-xl flex flex-wrap gap-2 max-w-[180px] justify-end shadow-xl shadow-black/80 animate-fade-in">
+                  <span className="text-[6.5px] text-red-405 font-extrabold uppercase tracking-widest block w-full text-right select-none font-mono">
+                    OVERFLOW (KURSI PENUH)
+                  </span>
+                  {profiles.filter(p => p.current_seat_id === `tavern_overflow_${p.id}`).map(occupant => (
+                    <div key={occupant.id} className="relative flex flex-col items-center group cursor-pointer">
+                      <div className="w-9 h-9 flex items-center justify-center relative hover:scale-110 transition-transform">
+                        {activeBubbles[occupant.id] && (
+                          <div className="speech-bubble">
+                            {activeBubbles[occupant.id].text}
+                          </div>
+                        )}
+                        <SpriteRenderer
+                          base={occupant.sprite_json.base}
+                          hair={occupant.sprite_json.hair}
+                          outfit={occupant.sprite_json.outfit}
+                          accessory={occupant.sprite_json.accessory}
+                          petId={occupant.pet_id}
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
+                          size={38}
+                        />
+                        {occupant.id === currentProfile.id && (
+                          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full border border-white animate-bounce z-50"></div>
+                        )}
+                      </div>
+                      <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
+                        <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                          {occupant.name.split(' ')[0]}
+                        </span>
+                        <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             </div>
           </div>
 
@@ -3320,6 +3402,8 @@ export const Tavern: React.FC<TavernProps> = ({
           </div>
         </div>
       )}
+
+
 
     </div>
   );

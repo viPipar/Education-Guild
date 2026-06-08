@@ -3,6 +3,7 @@ import type { Profile, WildernessRaidState, RaiderState, RaidComment, BossConfig
 import type { Seat } from '../lib/supabase';
 import { db } from '../lib/supabase';
 import { SpriteRenderer } from './SpriteRenderer';
+
 import {
   Sword, Heart, Zap, Trophy, Clock, Upload,
   Save, RotateCcw, Shield, X, MessageSquare,
@@ -56,6 +57,38 @@ export const Wilderness: React.FC<WildernessProps> = ({
   // State
   const [raidState, setRaidState] = useState<WildernessRaidState | null>(null);
   const seats = React.useMemo(() => db.getSeatsSync('wilderness', profiles), [profiles]);
+
+  const autoSeatRef = useRef(false);
+  useEffect(() => {
+    if (profiles.length > 0 && !autoSeatRef.current && currentProfile) {
+      autoSeatRef.current = true;
+      const myProfile = profiles.find(p => p.id === currentProfile.id);
+      const currentSeat = myProfile?.current_seat_id;
+      const isSeatedInThisRoom = currentSeat && currentSeat.startsWith('wilderness');
+      
+      if (!isSeatedInThisRoom) {
+        const chairs = seats;
+        const availableChairs = chairs.filter(s => !s.user_id);
+        
+        if (availableChairs.length > 0) {
+          const randomSeat = availableChairs[Math.floor(Math.random() * availableChairs.length)];
+          if (onSeatClick) {
+            onSeatClick(randomSeat.id, false);
+          } else {
+            db.claimSeat('wilderness', randomSeat.id, currentProfile.id);
+          }
+        } else {
+          const overflowSeatId = `wilderness_overflow_${currentProfile.id}`;
+          if (onSeatClick) {
+            onSeatClick(overflowSeatId, false);
+          } else {
+            db.claimSeat('wilderness', overflowSeatId, currentProfile.id);
+          }
+        }
+      }
+    }
+  }, [profiles, currentProfile]);
+
   const [comments, setComments] = useState<RaidComment[]>([]);
   const [commentInput, setCommentInput] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(0);
@@ -974,13 +1007,48 @@ export const Wilderness: React.FC<WildernessProps> = ({
             })}
           </div>
 
-          {/* Raider count bottom-left */}
-          <div className="absolute bottom-3 left-4 text-xs font-mono text-red-900/60 font-bold">
-            {phase === 'active'
-              ? `${raidState?.raiders.filter(r => r.alive).length}/${raidState?.raiders.length} ALIVE`
-              : `${seats.filter(s => s.user_id).length}/${seats.length} RAIDERS READY`}
+            {/* Overflow Characters Container (Bottom Right) */}
+            <div className="absolute bottom-3 right-4 z-40 flex flex-col items-end gap-1 pointer-events-auto">
+              {profiles.filter(p => p.current_seat_id === `wilderness_overflow_${p.id}`).length > 0 && (
+                <div className="bg-slate-950/85 border-2 border-[#3a1010]/40 p-2 rounded-xl flex flex-wrap gap-2 max-w-[180px] justify-end shadow-xl shadow-black/80">
+                  <span className="text-[6.5px] text-red-500 font-extrabold uppercase tracking-widest block w-full text-right select-none font-mono">
+                    OVERFLOW (KURSI PENUH)
+                  </span>
+                  {profiles.filter(p => p.current_seat_id === `wilderness_overflow_${p.id}`).map(occupant => (
+                    <div key={occupant.id} className="relative flex flex-col items-center group cursor-pointer">
+                      <div className="w-9 h-9 flex items-center justify-center relative hover:scale-110 transition-transform">
+                        <SpriteRenderer
+                          base={occupant.sprite_json.base}
+                          hair={occupant.sprite_json.hair}
+                          outfit={occupant.sprite_json.outfit}
+                          accessory={occupant.sprite_json.accessory}
+                          petId="none"
+                          cosmeticId={occupant.sprite_json.cosmetic_id}
+                          size={32}
+                        />
+                        {occupant.id === currentProfile.id && (
+                          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full border border-white animate-bounce z-50"></div>
+                        )}
+                      </div>
+                      <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#3a1010]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
+                        <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                          {occupant.name.split(' ')[0]}
+                        </span>
+                        <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Raider count bottom-left */}
+            <div className="absolute bottom-3 left-4 text-xs font-mono text-red-900/60 font-bold">
+              {phase === 'active'
+                ? `${raidState?.raiders.filter(r => r.alive).length}/${raidState?.raiders.length} ALIVE`
+                : `${seats.filter(s => s.user_id).length}/${seats.length} RAIDERS READY`}
+            </div>
           </div>
-        </div>
 
         {/* Right: Comments */}
         <div className="lg:col-span-3 bg-[#0d0202] border-l border-[#3a1010] flex flex-col min-h-0 overflow-hidden">
@@ -1251,6 +1319,8 @@ export const Wilderness: React.FC<WildernessProps> = ({
           </div>
         );
       })()}
+
+
     </div>
   );
 };

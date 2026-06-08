@@ -141,6 +141,33 @@ export interface TavernComment {
   created_at: string;
 }
 
+// Agenda/Local room chat comments
+export interface AgendaComment {
+  id: string;
+  room_id: string;
+  author_id: string;
+  author_name: string;
+  text: string;
+  created_at: string;
+}
+
+// Absolute timer state (stored in DB so latecomers see correct time)
+export interface TimerState {
+  endsAt: number;         // Unix ms when timer expires (0 = not running)
+  running: boolean;
+  pausedRemaining: number; // ms remaining when paused (0 = use endsAt)
+  totalDuration: number;  // original duration in ms (for reset)
+}
+
+// Room presentation state for collaborative workspace
+export interface PresentationState {
+  fileUrl: string;
+  fileName: string;
+  presenterId: string;
+  presenterName: string;
+  active: boolean;
+}
+
 // ==========================================
 // WILDERNESS RAID TYPES
 // ==========================================
@@ -1717,5 +1744,178 @@ export const db = {
     return () => {
       subscribers.delete(callback);
     };
+  },
+
+  // ==========================================
+  // ABSOLUTE TIMER STATE
+  // Stored in whiteboard_drawings with room_id='global_timer'
+  // ==========================================
+  async getTimerState(): Promise<TimerState | null> {
+    const defaultTimer: TimerState = { endsAt: 0, running: false, pausedRemaining: 15 * 60 * 1000, totalDuration: 15 * 60 * 1000 };
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', 'global_timer_state')
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.notes) return data.notes as TimerState;
+      } catch (err) {
+        console.warn('getTimerState error, fallback to localStorage:', err);
+      }
+    }
+    try {
+      const saved = localStorage.getItem('rpg_global_timer_state');
+      return saved ? JSON.parse(saved) : defaultTimer;
+    } catch {
+      return defaultTimer;
+    }
+  },
+
+  async saveTimerState(state: TimerState): Promise<void> {
+    localStorage.setItem('rpg_global_timer_state', JSON.stringify(state));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: 'global_timer_state',
+            notes: state as any,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('saveTimerState error:', err);
+      }
+    }
+    // Broadcast to all clients
+    this.broadcast('timer_sync_v2', state);
+  },
+
+  // ==========================================
+  // AGENDA COMMENTS (per-room persistent chat)
+  // ==========================================
+  async getAgendaComments(roomId: string): Promise<AgendaComment[]> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('room_agenda_comments')
+          .select('*')
+          .eq('room_id', roomId)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        return (data || []).map((row: any) => ({
+          id: row.id.toString(),
+          room_id: row.room_id,
+          author_id: row.author_id,
+          author_name: row.author_name,
+          text: row.text,
+          created_at: row.created_at
+        }));
+      } catch (err) {
+        console.warn('getAgendaComments error, fallback:', err);
+      }
+    }
+    const key = `rpg_agenda_comments_${roomId}`;
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  },
+
+  async addAgendaComment(roomId: string, text: string, authorId: string, authorName: string): Promise<AgendaComment> {
+    let newComment: AgendaComment = {
+      id: Date.now().toString(),
+      room_id: roomId,
+      author_id: authorId,
+      author_name: authorName,
+      text,
+      created_at: new Date().toISOString()
+    };
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('room_agenda_comments')
+          .insert({ room_id: roomId, author_id: authorId, author_name: authorName, text })
+          .select();
+        if (error) throw error;
+        if (data?.[0]) {
+          newComment = {
+            id: data[0].id.toString(),
+            room_id: data[0].room_id,
+            author_id: data[0].author_id,
+            author_name: data[0].author_name,
+            text: data[0].text,
+            created_at: data[0].created_at
+          };
+        }
+      } catch (err) {
+        console.error('addAgendaComment error:', err);
+      }
+    }
+    // Always persist locally
+    const key = `rpg_agenda_comments_${roomId}`;
+    const list: AgendaComment[] = JSON.parse(localStorage.getItem(key) || '[]');
+    list.push(newComment);
+    localStorage.setItem(key, JSON.stringify(list));
+    this.broadcast('agenda_comment_add', { roomId, comment: newComment });
+    return newComment;
+  },
+
+  async clearAgendaComments(roomId: string): Promise<void> {
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('room_agenda_comments')
+          .delete()
+          .eq('room_id', roomId);
+      } catch (err) {
+        console.error('clearAgendaComments error:', err);
+      }
+    }
+    localStorage.removeItem(`rpg_agenda_comments_${roomId}`);
+    this.broadcast('agenda_comments_clear', { roomId });
+  },
+
+  // ==========================================
+  // ROOM PRESENTATION WORKSPACE SYNC
+  // ==========================================
+  async getPresentationState(roomId: string): Promise<PresentationState> {
+    const defaultState: PresentationState = { fileUrl: '', fileName: '', presenterId: '', presenterName: '', active: false };
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('whiteboard_drawings')
+          .select('notes')
+          .eq('room_id', `presentation_${roomId}`)
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.notes) return data.notes as unknown as PresentationState;
+      } catch (err) {
+        console.warn(`getPresentationState error for ${roomId}, fallback:`, err);
+      }
+    }
+    try {
+      const saved = localStorage.getItem(`rpg_presentation_${roomId}`);
+      return saved ? JSON.parse(saved) : defaultState;
+    } catch {
+      return defaultState;
+    }
+  },
+
+  async savePresentationState(roomId: string, state: PresentationState): Promise<void> {
+    localStorage.setItem(`rpg_presentation_${roomId}`, JSON.stringify(state));
+    if (!isMock && supabase) {
+      try {
+        await supabase
+          .from('whiteboard_drawings')
+          .upsert({
+            room_id: `presentation_${roomId}`,
+            notes: state as any,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'room_id' });
+      } catch (err) {
+        console.error('savePresentationState error:', err);
+      }
+    }
+    // Broadcast to all clients
+    this.broadcast('presentation_sync', { roomId, state });
   }
 };
