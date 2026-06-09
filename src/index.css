@@ -66,6 +66,16 @@ body {
   50% { transform: translateY(-4px); }
 }
 
+/* Nexus Core damage shake */
+@keyframes shake {
+  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+  15% { transform: translate(calc(-50% - 6px), calc(-50% + 3px)) rotate(-4deg); }
+  30% { transform: translate(calc(-50% + 6px), calc(-50% - 3px)) rotate(4deg); }
+  45% { transform: translate(calc(-50% - 4px), calc(-50% + 2px)) rotate(-2deg); }
+  60% { transform: translate(calc(-50% + 4px), calc(-50% - 2px)) rotate(2deg); }
+  75% { transform: translate(calc(-50% - 2px), 0) rotate(-1deg); }
+}
+
 @keyframes boat-rock {
   0%, 100% { transform: rotate(0deg) translateY(0); }
   25% { transform: rotate(1.5deg) translateY(-3px); }

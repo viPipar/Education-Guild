@@ -917,7 +917,7 @@ function App() {
                 { id: 'tavern', name: 'Tavern', icon: Flame },
                 { id: 'library', name: 'Library', icon: BookOpen },
                 { id: 'wilderness', name: 'Wilderness', icon: Swords },
-                { id: 'defense', name: 'Typing Defense', icon: Shield },
+                { id: 'defense', name: 'Siege', icon: Shield },
                 currentProfile.role !== 'Staff' ? { id: 'ledger', name: 'Ledger', icon: UserCheck } : null,
                 { id: 'quest', name: 'Quest Board', icon: Star },
                 currentProfile.role === 'Director' ? { id: 'asset_chamber', name: 'Asset Chamber', icon: Sparkles } : null,
