@@ -90,12 +90,17 @@ CREATE TABLE IF NOT EXISTS public.whiteboard_drawings (
     room_id TEXT NOT NULL UNIQUE,
     strokes JSONB DEFAULT '[]'::jsonb,
     notes JSONB DEFAULT '[]'::jsonb,
+    comments JSONB DEFAULT '[]'::jsonb,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
 ALTER TABLE public.whiteboard_drawings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public read drawings" ON public.whiteboard_drawings FOR SELECT USING (true);
-CREATE POLICY "Allow public update drawings" ON public.whiteboard_drawings FOR ALL USING (true);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'whiteboard_drawings' AND policyname = 'Allow public update drawings') THEN
+        CREATE POLICY "Allow public update drawings" ON public.whiteboard_drawings FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
 
 -- 6. Checklist / Scroll of Order Table
 CREATE TABLE IF NOT EXISTS public.checklist_items (
@@ -168,7 +173,8 @@ CREATE POLICY "Allow all on inventory" ON public.rpg_inventory FOR ALL USING (tr
 
 -- 11. Whiteboard Drawings Updates (run if table already exists)
 ALTER TABLE public.whiteboard_drawings
-  ADD COLUMN IF NOT EXISTS notes JSONB DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS notes JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'::jsonb;
 
 -- To make room_id UNIQUE if not already set:
 ALTER TABLE public.whiteboard_drawings
@@ -210,3 +216,111 @@ CREATE TABLE IF NOT EXISTS public.rpg_raid_comments (
 );
 ALTER TABLE public.rpg_raid_comments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on raid_comments" ON public.rpg_raid_comments FOR ALL USING (true);
+
+-- 14. Werewolf Room State
+CREATE TABLE IF NOT EXISTS public.werewolf_rooms (
+    room_id TEXT PRIMARY KEY,
+    state JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.werewolf_rooms ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'werewolf_rooms' AND policyname = 'Allow all on werewolf_rooms') THEN
+        CREATE POLICY "Allow all on werewolf_rooms" ON public.werewolf_rooms FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 15. Minutes of Meeting (Library)
+CREATE TABLE IF NOT EXISTS public.rpg_minutes (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    scribe TEXT NOT NULL,
+    summary TEXT,
+    action_items JSONB DEFAULT '[]'::jsonb,
+    photos JSONB DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.rpg_minutes ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rpg_minutes' AND policyname = 'Allow all on rpg_minutes') THEN
+        CREATE POLICY "Allow all on rpg_minutes" ON public.rpg_minutes FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 16. Memory Boards (Polaroids)
+CREATE TABLE IF NOT EXISTS public.rpg_memory_boards (
+    board_id TEXT PRIMARY KEY,
+    photos JSONB DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.rpg_memory_boards ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rpg_memory_boards' AND policyname = 'Allow all on rpg_memory_boards') THEN
+        CREATE POLICY "Allow all on rpg_memory_boards" ON public.rpg_memory_boards FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 17. Room Configurations (Weather, Discord)
+CREATE TABLE IF NOT EXISTS public.rpg_room_configs (
+    room_id TEXT PRIMARY KEY,
+    weather_intensity INTEGER DEFAULT 0,
+    discord_url TEXT DEFAULT '',
+    weather_filter INTEGER DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.rpg_room_configs ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rpg_room_configs' AND policyname = 'Allow all on rpg_room_configs') THEN
+        CREATE POLICY "Allow all on rpg_room_configs" ON public.rpg_room_configs FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 18. Room Agenda Comments (Chats)
+CREATE TABLE IF NOT EXISTS public.room_agenda_comments (
+    id BIGSERIAL PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    author_id TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.room_agenda_comments ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'room_agenda_comments' AND policyname = 'Allow all on room_agenda_comments') THEN
+        CREATE POLICY "Allow all on room_agenda_comments" ON public.room_agenda_comments FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 19. Typing Questions
+CREATE TABLE IF NOT EXISTS public.rpg_typing_questions (
+    id BIGSERIAL PRIMARY KEY,
+    soal TEXT NOT NULL,
+    jawaban TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.rpg_typing_questions ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rpg_typing_questions' AND policyname = 'Allow all on rpg_typing_questions') THEN
+        CREATE POLICY "Allow all on rpg_typing_questions" ON public.rpg_typing_questions FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 20. Quest Board Table
+CREATE TABLE IF NOT EXISTS public.rpg_quests (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    difficulty TEXT NOT NULL CHECK (difficulty IN ('Easy', 'Medium', 'Hard')),
+    reward_xp INTEGER DEFAULT 10,
+    spreadsheet_url TEXT,
+    deadline TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+ALTER TABLE public.rpg_quests ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rpg_quests' AND policyname = 'Allow all on rpg_quests') THEN
+        CREATE POLICY "Allow all on rpg_quests" ON public.rpg_quests FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;

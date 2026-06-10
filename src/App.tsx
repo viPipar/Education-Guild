@@ -249,14 +249,9 @@ function App() {
     // Listen for realtime updates
     const unsubscribe = db.subscribe(async (msg) => {
       if (msg.type === 'profile_update' || msg.type === 'seat_claim' || msg.type === 'seat_leave') {
-        // Ignore updates initiated by ourselves to prevent race conditions and redundant network requests
-        if (currentProfile) {
-          if (msg.type === 'profile_update' && msg.payload.id === currentProfile.id) {
-            return;
-          }
-          if ((msg.type === 'seat_claim' || msg.type === 'seat_leave') && msg.payload.userId === currentProfile.id) {
-            return;
-          }
+        // Ignore updates initiated by ourselves in the same tab to support multi-tab/split-screen same-account sync
+        if (db.isLocalSender(msg.payload)) {
+          return;
         }
         refreshProfiles();
       } else if (msg.type === 'ticker_update') {
@@ -265,6 +260,7 @@ function App() {
         const { roomId, updates } = msg.payload;
         setRoomConfigs(prev => prev.map(c => c.room_id === roomId ? { ...c, ...updates } : c));
       } else if (msg.type === 'summon_all') {
+        if (db.isLocalSender(msg.payload)) return;
         const { announcement } = msg.payload;
         setSummonNotification({ show: true, text: announcement });
       } else if (msg.type === 'timer_sync_v2') {
@@ -858,10 +854,10 @@ function App() {
                     {/* Small sprite avatar head */}
                     <div className="rpg-party-avatar flex items-center justify-center overflow-hidden">
                       <SpriteRenderer
-                        base={member.sprite_json.base}
-                        hair={member.sprite_json.hair}
-                        outfit={member.sprite_json.outfit}
-                        accessory={member.sprite_json.accessory}
+                        base={member.sprite_json?.base || 'base_1'}
+                        hair={member.sprite_json?.hair || 'hair_default'}
+                        outfit={member.sprite_json?.outfit || 'outfit_casual'}
+                        accessory={member.sprite_json?.accessory || 'none'}
                         petId="none"
                         size={28}
                       />
@@ -872,7 +868,7 @@ function App() {
                       <div className="flex justify-between items-center">
                         <span 
                           className="font-bold text-[11px] truncate block"
-                          style={{ color: member.sprite_json.nameColor || (isCurrent ? '#86efac' : '#f1f5f9') }}
+                          style={{ color: member.sprite_json?.nameColor || (isCurrent ? '#86efac' : '#f1f5f9') }}
                         >
                           {member.name.split(' ')[0]}
                         </span>

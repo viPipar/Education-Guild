@@ -593,12 +593,12 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               </div>
                             )}
                             <SpriteRenderer
-                              base={occupant.sprite_json.base}
-                              hair={occupant.sprite_json.hair}
-                              outfit={occupant.sprite_json.outfit}
-                              accessory={occupant.sprite_json.accessory}
+                              base={occupant.sprite_json?.base || 'base_1'}
+                              hair={occupant.sprite_json?.hair || 'hair_default'}
+                              outfit={occupant.sprite_json?.outfit || 'outfit_casual'}
+                              accessory={occupant.sprite_json?.accessory || 'none'}
                               petId={occupant.pet_id}
-                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              cosmeticId={occupant.sprite_json?.cosmetic_id || 'none'}
                               size={48}
                               className="transform -translate-y-1"
                             />
@@ -613,7 +613,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
 
                       {occupant && (
                         <div className="bg-slate-950/90 border border-[#8d6e63]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center">
-                          <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                          <span style={{ color: occupant.sprite_json?.nameColor || '#fef08a' }}>
                             {occupant.name.split(' ')[0]}
                           </span>
                           <span className="block text-[5px] text-slate-400 leading-none mt-0.5">{occupant.current_status}</span>
@@ -639,12 +639,12 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               </div>
                             )}
                             <SpriteRenderer
-                              base={occupant.sprite_json.base}
-                              hair={occupant.sprite_json.hair}
-                              outfit={occupant.sprite_json.outfit}
-                              accessory={occupant.sprite_json.accessory}
+                              base={occupant.sprite_json?.base || 'base_1'}
+                              hair={occupant.sprite_json?.hair || 'hair_default'}
+                              outfit={occupant.sprite_json?.outfit || 'outfit_casual'}
+                              accessory={occupant.sprite_json?.accessory || 'none'}
                               petId={occupant.pet_id}
-                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              cosmeticId={occupant.sprite_json?.cosmetic_id || 'none'}
                               size={38}
                             />
                             {occupant.id === currentProfile.id && (
@@ -652,7 +652,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                             )}
                           </div>
                           <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
-                            <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                            <span style={{ color: occupant.sprite_json?.nameColor || '#fef08a' }}>
                               {occupant.name.split(' ')[0]}
                             </span>
                             <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>
@@ -818,12 +818,12 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               </div>
                             )}
                             <SpriteRenderer
-                              base={occupant.sprite_json.base}
-                              hair={occupant.sprite_json.hair}
-                              outfit={occupant.sprite_json.outfit}
-                              accessory={occupant.sprite_json.accessory}
+                              base={occupant.sprite_json?.base || 'base_1'}
+                              hair={occupant.sprite_json?.hair || 'hair_default'}
+                              outfit={occupant.sprite_json?.outfit || 'outfit_casual'}
+                              accessory={occupant.sprite_json?.accessory || 'none'}
                               petId={occupant.pet_id}
-                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              cosmeticId={occupant.sprite_json?.cosmetic_id || 'none'}
                               size={48}
                               className="transform -translate-y-1"
                             />
@@ -838,7 +838,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
 
                       {occupant && (
                         <div className="bg-slate-950/90 border border-[#cd853f]/40 px-1.5 py-0.5 rounded text-[8px] mt-0.5 font-semibold max-w-[65px] truncate text-center">
-                          <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                          <span style={{ color: occupant.sprite_json?.nameColor || '#fef08a' }}>
                             {occupant.name.split(' ')[0]}
                           </span>
                           <span className="block text-[5px] text-slate-400 leading-none mt-0.5">{occupant.current_status}</span>
@@ -864,12 +864,12 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                               </div>
                             )}
                             <SpriteRenderer
-                              base={occupant.sprite_json.base}
-                              hair={occupant.sprite_json.hair}
-                              outfit={occupant.sprite_json.outfit}
-                              accessory={occupant.sprite_json.accessory}
+                              base={occupant.sprite_json?.base || 'base_1'}
+                              hair={occupant.sprite_json?.hair || 'hair_default'}
+                              outfit={occupant.sprite_json?.outfit || 'outfit_casual'}
+                              accessory={occupant.sprite_json?.accessory || 'none'}
                               petId={occupant.pet_id}
-                              cosmeticId={occupant.sprite_json.cosmetic_id}
+                              cosmeticId={occupant.sprite_json?.cosmetic_id || 'none'}
                               size={38}
                             />
                             {occupant.id === currentProfile.id && (
@@ -877,7 +877,7 @@ export const SubDivisionRooms: React.FC<SubDivisionRoomsProps> = ({
                             )}
                           </div>
                           <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-slate-950/95 border border-[#5c3a21]/50 px-2 py-0.5 rounded text-[8px] font-bold max-w-[100px] text-center shadow-lg pointer-events-none z-50">
-                            <span style={{ color: occupant.sprite_json.nameColor || '#fef08a' }}>
+                            <span style={{ color: occupant.sprite_json?.nameColor || '#fef08a' }}>
                               {occupant.name.split(' ')[0]}
                             </span>
                             <span className="block text-[6px] text-slate-400 mt-0.5 leading-none">{occupant.current_status}</span>

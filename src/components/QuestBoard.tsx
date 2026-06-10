@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Profile } from '../lib/supabase';
+import { db } from '../lib/supabase';
 import { Shield, ExternalLink, Calendar, Plus, Award, Trash2, Edit } from 'lucide-react';
 import { playClick, playSelect } from '../lib/audio';
 
@@ -61,13 +62,24 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
   ];
 
   useEffect(() => {
-    const savedQuests = localStorage.getItem('rpg_quests');
-    if (savedQuests) {
-      setQuests(JSON.parse(savedQuests));
-    } else {
-      setQuests(DEFAULT_QUESTS);
-      localStorage.setItem('rpg_quests', JSON.stringify(DEFAULT_QUESTS));
-    }
+    db.getQuests().then(list => {
+      if (list.length === 0) {
+        // Seed default quests
+        Promise.all(DEFAULT_QUESTS.map(q => db.saveQuest(q))).then(() => {
+          db.getQuests().then(setQuests);
+        });
+      } else {
+        setQuests(list);
+      }
+    });
+
+    const unsubscribe = db.subscribe((msg) => {
+      if (msg.type === 'quest_update') {
+        db.getQuests().then(setQuests);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleAddQuest = (e: React.FormEvent) => {
@@ -75,33 +87,20 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
     if (!title.trim() || !spreadsheetUrl.trim()) return;
     playClick();
 
-    let updatedQuests: Quest[];
-    if (editingQuestId) {
-      updatedQuests = quests.map(q => q.id === editingQuestId ? {
-        ...q,
-        title: title.trim(),
-        description: description.trim(),
-        difficulty,
-        rewardXp,
-        spreadsheetUrl: spreadsheetUrl.trim(),
-        deadline
-      } : q);
-    } else {
-      const newQuest: Quest = {
-        id: Date.now().toString(),
-        title: title.trim(),
-        description: description.trim(),
-        difficulty,
-        rewardXp,
-        spreadsheetUrl: spreadsheetUrl.trim(),
-        deadline
-      };
-      updatedQuests = [...quests, newQuest];
-    }
+    const questData: Quest = {
+      id: editingQuestId || Date.now().toString(),
+      title: title.trim(),
+      description: description.trim(),
+      difficulty,
+      rewardXp,
+      spreadsheetUrl: spreadsheetUrl.trim(),
+      deadline
+    };
 
-    setQuests(updatedQuests);
-    localStorage.setItem('rpg_quests', JSON.stringify(updatedQuests));
-    closeForm();
+    db.saveQuest(questData).then(() => {
+      db.getQuests().then(setQuests);
+      closeForm();
+    });
   };
 
   const handleEditQuest = (quest: Quest) => {
@@ -118,9 +117,9 @@ export const QuestBoard: React.FC<QuestBoardProps> = ({ currentProfile }) => {
 
   const handleDeleteQuest = (id: string) => {
     playClick();
-    const updated = quests.filter(q => q.id !== id);
-    setQuests(updated);
-    localStorage.setItem('rpg_quests', JSON.stringify(updated));
+    db.deleteQuest(id).then(() => {
+      db.getQuests().then(setQuests);
+    });
   };
 
   const closeForm = () => {

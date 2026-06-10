@@ -119,6 +119,21 @@ export const Wilderness: React.FC<WildernessProps> = ({
 
   // Computed helpers
   const isDirectorOrManager = currentProfile.role === 'Director' || currentProfile.role === 'Manager';
+  
+  const seatedManagers = React.useMemo(() => {
+    return seats
+      .filter(s => s.user_id !== null)
+      .map(s => profiles.find(p => p.id === s.user_id))
+      .filter((p): p is Profile => !!p && (p.role === 'Director' || p.role === 'Manager'))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [seats, profiles]);
+
+  const isBossHost = seatedManagers.length > 0 && seatedManagers[0].id === currentProfile.id;
+  const isBossHostRef = useRef(false);
+  useEffect(() => {
+    isBossHostRef.current = isBossHost;
+  }, [isBossHost]);
+
   const phase = raidState?.phase ?? 'lobby';
   const myRaider = raidState?.raiders.find(r => r.profileId === currentProfile.id);
   const amISitting = seats.some(s => s.user_id === currentProfile.id);
@@ -193,11 +208,34 @@ export const Wilderness: React.FC<WildernessProps> = ({
 
   // ─── Broadcast subscription ────────────────────────────────────────────────
   useEffect(() => {
-    loadInitialData();
+    loadInitialData().then(() => {
+      if (raidStateRef.current?.phase === 'active') {
+        db.broadcast('wilderness_request_sync', {});
+      }
+    });
 
     const unsubscribe = db.subscribe((msg) => {
+      if (msg.type === 'wilderness_request_sync') {
+        if (isBossHostRef.current && raidStateRef.current) {
+          db.broadcast('wilderness_sync', { state: raidStateRef.current });
+        }
+      }
+
+      else if (msg.type === 'wilderness_sync') {
+        const incoming = msg.payload.state as WildernessRaidState;
+        if (incoming && incoming.phase === 'active') {
+          const merged: WildernessRaidState = {
+            ...incoming,
+            bossConfig: { ...incoming.bossConfig, gifBase64: cachedGifRef.current || incoming.bossConfig.gifBase64 },
+          };
+          setRaidState(merged);
+          raidStateRef.current = merged;
+          setTimeRemaining(Math.max(0, Math.floor((merged.endsAt - Date.now()) / 1000)));
+        }
+      }
+
       // When Director starts raid — fetch full state (with GIF) from DB
-      if (msg.type === 'wilderness_start') {
+      else if (msg.type === 'wilderness_start') {
         db.getRaidState().then(state => {
           if (!state) return;
           if (state.bossConfig.gifBase64) {
@@ -353,10 +391,10 @@ export const Wilderness: React.FC<WildernessProps> = ({
     return () => clearInterval(timerIntervalRef.current);
   }, [raidState?.phase, raidState?.endsAt]);
 
-  // ─── Boss attack interval (Director/Manager only) ─────────────────────────
+  // ─── Boss attack interval (Authoritative Boss Host only) ───────────────────
   useEffect(() => {
     clearInterval(bossAttackIntervalRef.current);
-    if (raidState?.phase !== 'active' || !isDirectorOrManager) return;
+    if (raidState?.phase !== 'active' || !isBossHost) return;
     const speedMs = Math.max(1000, (raidState.bossConfig.attackSpeed || 5) * 1000);
     bossAttackIntervalRef.current = setInterval(() => {
       if (raidStateRef.current?.phase !== 'active') {
@@ -366,25 +404,25 @@ export const Wilderness: React.FC<WildernessProps> = ({
       db.broadcast('wilderness_boss_attack', { damage: raidStateRef.current.bossConfig.damage });
     }, speedMs);
     return () => clearInterval(bossAttackIntervalRef.current);
-  }, [raidState?.phase, isDirectorOrManager]);
+  }, [raidState?.phase, isBossHost]);
 
   // ─── Win check (boss HP ≤ 0) ──────────────────────────────────────────────
   useEffect(() => {
-    if (!raidState || raidState.phase !== 'active' || !isDirectorOrManager) return;
+    if (!raidState || raidState.phase !== 'active' || !isBossHost) return;
     if (raidState.bossHp <= 0) sendEndRaid('win');
-  }, [raidState?.bossHp]);
+  }, [raidState?.bossHp, isBossHost]);
 
   // ─── Lose check (all raiders dead) ────────────────────────────────────────
   useEffect(() => {
-    if (!raidState || raidState.phase !== 'active' || !isDirectorOrManager) return;
+    if (!raidState || raidState.phase !== 'active' || !isBossHost) return;
     if (raidState.raiders.length > 0 && raidState.raiders.every(r => !r.alive)) sendEndRaid('lose');
-  }, [raidState?.raiders]);
+  }, [raidState?.raiders, isBossHost]);
 
   // ─── Draw check (timer expired) ───────────────────────────────────────────
   useEffect(() => {
-    if (!raidState || raidState.phase !== 'active' || !isDirectorOrManager) return;
+    if (!raidState || raidState.phase !== 'active' || !isBossHost) return;
     if (timeRemaining <= 0 && raidState.endsAt > 0 && Date.now() >= raidState.endsAt) sendEndRaid('draw');
-  }, [timeRemaining]);
+  }, [timeRemaining, isBossHost]);
 
   // ─── Send end-of-raid event (Director/Manager only, runs once) ────────────
   const sendEndRaid = async (result: 'win' | 'lose' | 'draw') => {
@@ -1088,7 +1126,7 @@ export const Wilderness: React.FC<WildernessProps> = ({
                       return (
                         <span 
                           className="text-xs font-bold truncate max-w-[120px]"
-                          style={{ color: author?.sprite_json.nameColor || '#f87171' }}
+                          style={{ color: author?.sprite_json?.nameColor || '#f87171' }}
                         >
                           {c.authorName.split(' ')[0]}
                         </span>

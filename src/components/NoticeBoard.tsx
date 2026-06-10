@@ -19,6 +19,20 @@ export interface BoardElement {
   rotate?: number; // rotation in degrees
   width?: number; // custom width in px
   height?: number; // custom height in px
+  lockedBy?: string | null;
+  lockedByName?: string | null;
+  lockedByColor?: string | null;
+}
+
+export interface RemoteCursor {
+  userId: string;
+  name: string;
+  color: string;
+  x: number; // percentage (0 - 100)
+  y: number; // percentage (0 - 100)
+  lastActive: number;
+  chatBubble: string;
+  isIdle: boolean;
 }
 
 export interface WhiteboardStroke {
@@ -43,6 +57,41 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   const [newCommentText, setNewCommentText] = useState('');
   
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Multiplayer Cursors State
+  const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
+  const [localCursorChat, setLocalCursorChat] = useState('');
+  const [isChatInputActive, setIsChatInputActive] = useState(false);
+
+  // Throttling and tracking references
+  const lastSentRef = useRef<number>(0);
+  const localWorkspaceCoordsRef = useRef({ x: 50, y: 50 });
+  const trailingTimeoutRef = useRef<any>(null);
+  const localCoordsRef = useRef({ chatBubble: '' });
+
+  // Helper to generate a stable, premium color for each cursor based on profile or name
+  const getCursorColor = (profile: Profile) => {
+    if (profile.sprite_json?.nameColor) return profile.sprite_json.nameColor;
+    let hash = 0;
+    for (let i = 0; i < profile.name.length; i++) {
+      hash = profile.name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const broadcastLocalCursor = (isIdle = false) => {
+    db.broadcast('noticeboard_cursor', {
+      roomId,
+      userId: currentProfile.id,
+      name: currentProfile.name,
+      color: getCursorColor(currentProfile),
+      x: localWorkspaceCoordsRef.current.x,
+      y: localWorkspaceCoordsRef.current.y,
+      isIdle,
+      chatBubble: localCoordsRef.current.chatBubble
+    });
+  };
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState<'select' | 'pen' | 'eraser' | 'pan'>('select');
   const [zoomScale, setZoomScale] = useState<number>(1.0);
@@ -61,12 +110,21 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   // Keep refs in sync with state
   useEffect(() => { historyRef.current = history; }, [history]);
   useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+  const elementsRef = useRef<BoardElement[]>([]);
+  const strokesRef = useRef<WhiteboardStroke[]>([]);
+  useEffect(() => { elementsRef.current = elements; }, [elements]);
+  useEffect(() => { strokesRef.current = strokes; }, [strokes]);
 
   // Drag and Drop (Select Tool)
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
   const [dragStartClientPos, setDragStartClientPos] = useState({ x: 0, y: 0 });
   const wasSelectedBeforeDragRef = useRef(false);
+
+  const draggingIdRef = useRef<string | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => { draggingIdRef.current = draggingId; }, [draggingId]);
+  useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
 
   // Panning (Hand Tool)
   const [isPanning, setIsPanning] = useState(false);
@@ -89,9 +147,9 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   // Load initial board data
   const loadBoardData = async () => {
     const w = await db.getWhiteboard(roomId);
-    const loadedElements = (w.notes as unknown as BoardElement[]) || [];
-    const loadedStrokes = (w.strokes as unknown as WhiteboardStroke[]) || [];
-    const loadedComments = w.comments || [];
+    const loadedElements = Array.isArray(w.notes) ? (w.notes as unknown as BoardElement[]) : [];
+    const loadedStrokes = Array.isArray(w.strokes) ? (w.strokes as unknown as WhiteboardStroke[]) : [];
+    const loadedComments = Array.isArray(w.comments) ? w.comments : [];
     
     setElements(loadedElements);
     setStrokes(loadedStrokes);
@@ -108,36 +166,133 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
     // Subscribe to realtime database broadcast channels
     const unsubscribe = db.subscribe((msg) => {
       if (msg.type === 'whiteboard_update' && msg.payload.roomId === roomId) {
-        const remoteElements = (msg.payload.notes as unknown as BoardElement[]) || [];
-        const remoteStrokes = (msg.payload.strokes as unknown as WhiteboardStroke[]) || [];
-        const remoteComments = msg.payload.comments || [];
+        if (db.isLocalSender(msg.payload)) return;
+        const remoteElements = Array.isArray(msg.payload.notes) ? (msg.payload.notes as unknown as BoardElement[]) : [];
+        const remoteStrokes = Array.isArray(msg.payload.strokes) ? (msg.payload.strokes as unknown as WhiteboardStroke[]) : [];
+        const remoteComments = Array.isArray(msg.payload.comments) ? msg.payload.comments : [];
         
-        setElements(remoteElements);
+        setElements(prev => {
+          const safePrev = Array.isArray(prev) ? prev : [];
+          return remoteElements.map(remoteEl => {
+            if (!remoteEl || !remoteEl.id) return remoteEl;
+            const localEl = safePrev.find(el => el && el.id === remoteEl.id);
+            if (localEl && (localEl.id === draggingIdRef.current || localEl.id === editingIdRef.current)) {
+              return localEl;
+            }
+            return remoteEl;
+          }).filter(Boolean);
+        });
         setStrokes(remoteStrokes);
         setComments(remoteComments);
         
-        // Push remote state into local history so undo can go back
-        // Use the ref to avoid stale closure capturing wrong historyIndex
-        setHistory(prev => {
-          const cut = prev.slice(0, historyIndexRef.current + 1);
-          const next = [...cut, { elements: remoteElements, strokes: remoteStrokes }];
-          historyRef.current = next;
-          return next;
-        });
-        setHistoryIndex(prev => {
-          const next = prev + 1;
-          historyIndexRef.current = next;
-          return next;
-        });
+        const elementsChanged = JSON.stringify(remoteElements) !== JSON.stringify(elementsRef.current);
+        const strokesChanged = JSON.stringify(remoteStrokes) !== JSON.stringify(strokesRef.current);
+        
+        if (elementsChanged || strokesChanged) {
+          // Push remote state into local history so undo can go back
+          // Use the ref to avoid stale closure capturing wrong historyIndex
+          setHistory(prev => {
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const cut = safePrev.slice(0, historyIndexRef.current + 1);
+            const next = [...cut, { elements: remoteElements, strokes: remoteStrokes }];
+            historyRef.current = next;
+            return next;
+          });
+          setHistoryIndex(prev => {
+            const next = prev + 1;
+            historyIndexRef.current = next;
+            return next;
+          });
+        }
       } else if (msg.type === 'whiteboard_typing' && msg.payload.roomId === roomId) {
+        if (db.isLocalSender(msg.payload)) return;
         // Realtime collaborative typing, dragging, rotating sync (not pushed to DB history)
         const { elementId, updates } = msg.payload;
-        setElements(prev => prev.map(el => el.id === elementId ? { ...el, ...updates } : el));
+        setElements(prev => {
+          const safePrev = Array.isArray(prev) ? prev : [];
+          return safePrev.map(el => el && el.id === elementId ? { ...el, ...updates } : el).filter(Boolean) as BoardElement[];
+        });
+      } else if (msg.type === 'noticeboard_cursor' && msg.payload.roomId === roomId) {
+        if (db.isLocalSender(msg.payload)) return;
+        const { userId, name, color, x, y, chatBubble, isIdle } = msg.payload;
+        setRemoteCursors(prev => ({
+          ...prev,
+          [userId]: {
+            userId,
+            name,
+            color,
+            x,
+            y,
+            lastActive: Date.now(),
+            chatBubble,
+            isIdle
+          }
+        }));
+      } else if (msg.type === 'noticeboard_cursor_leave' && msg.payload.roomId === roomId) {
+        if (db.isLocalSender(msg.payload)) return;
+        const { userId } = msg.payload;
+        setRemoteCursors(prev => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (trailingTimeoutRef.current) clearTimeout(trailingTimeoutRef.current);
+      // Immediately notify others that we left when this component unmounts
+      db.broadcast('noticeboard_cursor_leave', {
+        roomId,
+        userId: currentProfile.id
+      });
+    };
   }, [roomId]);
+
+  // Idle timeout cleanup loop for remote cursors
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setRemoteCursors(prev => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [userId, cursor] of Object.entries(next)) {
+          const timeDiff = now - cursor.lastActive;
+          if (timeDiff > 10000) {
+            delete next[userId];
+            changed = true;
+          } else if (timeDiff > 5000 && !cursor.isIdle) {
+            next[userId] = { ...cursor, isIdle: true };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for forward-slash key to activate cursor chat
+  useEffect(() => {
+    const handleKeyDownSlash = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isTyping = active && (
+        active.tagName === 'INPUT' || 
+        active.tagName === 'TEXTAREA' || 
+        active.getAttribute('contenteditable') === 'true'
+      );
+      
+      if (e.key === '/' && !isTyping) {
+        e.preventDefault();
+        setIsChatInputActive(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDownSlash);
+    return () => window.removeEventListener('keydown', handleKeyDownSlash);
+  }, []);
 
   // Redraw freehand canvas strokes whenever strokes change
   useEffect(() => {
@@ -148,8 +303,9 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
 
     ctx.clearRect(0, 0, workspaceWidth, workspaceHeight);
     
-    strokes.forEach(stroke => {
-      if (stroke.points.length < 2) return;
+    const safeStrokes = Array.isArray(strokes) ? strokes : [];
+    safeStrokes.forEach(stroke => {
+      if (!stroke || !Array.isArray(stroke.points) || stroke.points.length < 2) return;
       
       ctx.beginPath();
       ctx.strokeStyle = stroke.tool === 'eraser' ? '#15121b' : stroke.color;
@@ -193,30 +349,34 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
         // Call directly via refs to avoid stale closure
         const idx = historyIndexRef.current;
         const hist = historyRef.current;
-        if (idx > 0) {
+        if (idx > 0 && Array.isArray(hist) && hist[idx - 1]) {
           playClick();
           const prevIndex = idx - 1;
           historyIndexRef.current = prevIndex;
           setHistoryIndex(prevIndex);
           const prev = hist[prevIndex];
-          setElements(prev.elements);
-          setStrokes(prev.strokes);
-          db.saveWhiteboard(roomId, prev.strokes as any, prev.elements as any, comments);
+          const prevElements = Array.isArray(prev.elements) ? prev.elements : [];
+          const prevStrokes = Array.isArray(prev.strokes) ? prev.strokes : [];
+          setElements(prevElements);
+          setStrokes(prevStrokes);
+          db.saveWhiteboard(roomId, prevStrokes as any, prevElements as any, comments);
         }
       } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
         if (isTyping) return;
         e.preventDefault();
         const idx = historyIndexRef.current;
         const hist = historyRef.current;
-        if (idx < hist.length - 1) {
+        if (idx < hist.length - 1 && Array.isArray(hist) && hist[idx + 1]) {
           playClick();
           const nextIndex = idx + 1;
           historyIndexRef.current = nextIndex;
           setHistoryIndex(nextIndex);
           const next = hist[nextIndex];
-          setElements(next.elements);
-          setStrokes(next.strokes);
-          db.saveWhiteboard(roomId, next.strokes as any, next.elements as any, comments);
+          const nextElements = Array.isArray(next.elements) ? next.elements : [];
+          const nextStrokes = Array.isArray(next.strokes) ? next.strokes : [];
+          setElements(nextElements);
+          setStrokes(nextStrokes);
+          db.saveWhiteboard(roomId, nextStrokes as any, nextElements as any, comments);
         }
       }
     };
@@ -250,16 +410,69 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
 
   // Save changes to Supabase Whiteboard and local history
   // Uses refs to avoid stale closure on historyIndex
+  // Save changes to Supabase Whiteboard and local history
+  // Uses refs to avoid stale closure on historyIndex
   const saveState = async (newElements: BoardElement[], newStrokes: WhiteboardStroke[], pushToHistory = true) => {
-    setElements(newElements);
-    setStrokes(newStrokes);
-    await db.saveWhiteboard(roomId, newStrokes as any, newElements as any, comments);
+    const safeNewElements = Array.isArray(newElements) ? newElements : [];
+    const safeNewStrokes = Array.isArray(newStrokes) ? newStrokes : [];
+
+    // 1. Set local state immediately for visual responsiveness
+    setElements(safeNewElements);
+    setStrokes(safeNewStrokes);
+
+    // 2. Fetch latest data from database before writing to avoid overwrites
+    const latest = await db.getWhiteboard(roomId);
+    
+    // 3. Merge strokes (combine by unique ID)
+    const latestStrokes = Array.isArray(latest.strokes) ? latest.strokes : [];
+    const strokeMap = new Map<string, WhiteboardStroke>();
+    latestStrokes.forEach(s => { if (s && s.id) strokeMap.set(s.id, s); });
+    safeNewStrokes.forEach(s => { if (s && s.id) strokeMap.set(s.id, s); });
+    const mergedStrokes = Array.from(strokeMap.values());
+
+    // 4. Merge elements (combine by unique ID, keeping remote coordinates for unchanged elements)
+    const latestElements = Array.isArray(latest.notes) ? latest.notes : [];
+    const elementMap = new Map<string, BoardElement>();
+    
+    // Fill map with latest DB elements
+    latestElements.forEach(el => { if (el && el.id) elementMap.set(el.id, el); });
+    
+    // Overwrite with locally changed or new elements
+    safeNewElements.forEach(el => {
+      if (el && el.id) {
+        const safePrevElements = Array.isArray(elementsRef.current) ? elementsRef.current : [];
+        const localBefore = safePrevElements.find(prevEl => prevEl && prevEl.id === el.id);
+        const hasChanged = !localBefore || JSON.stringify(localBefore) !== JSON.stringify(el);
+        if (hasChanged) {
+          elementMap.set(el.id, el);
+        }
+      }
+    });
+
+    // Detect if we deleted any elements locally (present in elementsRef but not in safeNewElements)
+    const newElementIds = new Set(safeNewElements.filter(el => el && el.id).map(el => el.id));
+    const safeElementsRef = Array.isArray(elementsRef.current) ? elementsRef.current : [];
+    safeElementsRef.forEach(el => {
+      if (el && el.id && !newElementIds.has(el.id)) {
+        elementMap.delete(el.id);
+      }
+    });
+    
+    const mergedElements = Array.from(elementMap.values());
+
+    // 5. Update state to merged values
+    setElements(mergedElements);
+    setStrokes(mergedStrokes);
+
+    // 6. Write the merged result to database
+    await db.saveWhiteboard(roomId, mergedStrokes as any, mergedElements as any, comments);
 
     if (pushToHistory) {
       // Always slice from the live ref to avoid acting on stale state
       const currentIdx = historyIndexRef.current;
-      const updatedHistory = historyRef.current.slice(0, currentIdx + 1);
-      const nextHistory = [...updatedHistory, { elements: newElements, strokes: newStrokes }];
+      const safeHistory = Array.isArray(historyRef.current) ? historyRef.current : [];
+      const updatedHistory = safeHistory.slice(0, currentIdx + 1);
+      const nextHistory = [...updatedHistory, { elements: mergedElements, strokes: mergedStrokes }];
       historyRef.current = nextHistory;
       historyIndexRef.current = updatedHistory.length;
       setHistory(nextHistory);
@@ -270,36 +483,54 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   const handleUndo = () => {
     const idx = historyIndexRef.current;
     const hist = historyRef.current;
-    if (idx > 0) {
+    if (idx > 0 && Array.isArray(hist) && hist[idx - 1]) {
       playClick();
       const prevIndex = idx - 1;
       historyIndexRef.current = prevIndex;
       setHistoryIndex(prevIndex);
       const prev = hist[prevIndex];
-      setElements(prev.elements);
-      setStrokes(prev.strokes);
-      db.saveWhiteboard(roomId, prev.strokes as any, prev.elements as any, comments);
+      saveState(prev.elements || [], prev.strokes || [], false);
     }
   };
 
   const handleRedo = () => {
     const idx = historyIndexRef.current;
     const hist = historyRef.current;
-    if (idx < hist.length - 1) {
+    if (idx < hist.length - 1 && Array.isArray(hist) && hist[idx + 1]) {
       playClick();
       const nextIndex = idx + 1;
       historyIndexRef.current = nextIndex;
       setHistoryIndex(nextIndex);
       const next = hist[nextIndex];
-      setElements(next.elements);
-      setStrokes(next.strokes);
-      db.saveWhiteboard(roomId, next.strokes as any, next.elements as any, comments);
+      saveState(next.elements || [], next.strokes || [], false);
     }
   };
 
   const saveComments = async (newComments: BoardComment[]) => {
-    setComments(newComments);
-    await db.saveWhiteboard(roomId, strokes, elements, newComments);
+    const safeNewComments = Array.isArray(newComments) ? newComments : [];
+    setComments(safeNewComments);
+
+    // Fetch latest whiteboard state
+    const latest = await db.getWhiteboard(roomId);
+    const latestComments = Array.isArray(latest.comments) ? latest.comments : [];
+
+    const commentMap = new Map<string, BoardComment>();
+    latestComments.forEach(c => { if (c && c.id) commentMap.set(c.id, c); });
+    safeNewComments.forEach(c => { if (c && c.id) commentMap.set(c.id, c); });
+
+    // Handle deletion: find comments that were in local state but not in safeNewComments
+    const newCommentIds = new Set(safeNewComments.filter(c => c && c.id).map(c => c.id));
+    const safeComments = Array.isArray(comments) ? comments : [];
+    safeComments.forEach(c => {
+      if (c && c.id && !newCommentIds.has(c.id)) {
+        commentMap.delete(c.id);
+      }
+    });
+
+    const mergedComments = Array.from(commentMap.values());
+    setComments(mergedComments);
+
+    await db.saveWhiteboard(roomId, strokes, elements, mergedComments);
   };
 
   const handleAddComment = () => {
@@ -469,7 +700,8 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
 
   const handleDeleteElement = (id: string) => {
     playClick();
-    const updated = elements.filter(el => el.id !== id);
+    const safeElements = Array.isArray(elements) ? elements : [];
+    const updated = safeElements.filter(el => el && el.id !== id);
     saveState(updated, strokes);
     if (selectedId === id) setSelectedId(null);
     if (editingId === id) setEditingId(null);
@@ -481,12 +713,13 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   };
 
   const updateElementProps = (id: string, updates: Partial<BoardElement>, pushHistory = false) => {
-    const updated = elements.map(el => {
-      if (el.id === id) {
+    const safeElements = Array.isArray(elements) ? elements : [];
+    const updated = safeElements.map(el => {
+      if (el && el.id === id) {
         return { ...el, ...updates };
       }
       return el;
-    });
+    }).filter(Boolean) as BoardElement[];
     setElements(updated);
 
     if (pushHistory) {
@@ -500,6 +733,13 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
   // Element Drag-and-Move Handle
   const handleElementMouseDown = (e: React.MouseEvent, id: string) => {
     if (drawMode !== 'select') return;
+
+    const safeElements = Array.isArray(elements) ? elements : [];
+    const element = safeElements.find(el => el && el.id === id);
+    if (!element) return;
+    if (element.lockedBy && element.lockedBy !== currentProfile.id) {
+      return; // Locked by someone else!
+    }
     
     e.stopPropagation();
     playClick();
@@ -509,13 +749,22 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
     setDraggingId(id);
     setDragStartClientPos({ x: e.clientX, y: e.clientY });
 
+    // Set lock
+    const lockUpdates = {
+      lockedBy: currentProfile.id,
+      lockedByName: currentProfile.name.split(' ')[0],
+      lockedByColor: getCursorColor(currentProfile)
+    };
+    setElements(prev => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map(el => el && el.id === id ? { ...el, ...lockUpdates } : el).filter(Boolean) as BoardElement[];
+    });
+    db.broadcast('whiteboard_typing', { roomId, elementId: id, updates: lockUpdates });
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     
-    const element = elements.find(el => el.id === id);
-    if (!element) return;
-
     const elXpx = (element.x / 100) * rect.width;
     const elYpx = (element.y / 100) * rect.height;
 
@@ -530,9 +779,23 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
 
   // Dedicated Drag-to-Rotate mouse handler
   const handleRotateMouseDown = (e: React.MouseEvent, el: BoardElement) => {
+    if (el.lockedBy && el.lockedBy !== currentProfile.id) return;
+
     e.stopPropagation();
     e.preventDefault();
     playClick();
+
+    // Set lock
+    const lockUpdates = {
+      lockedBy: currentProfile.id,
+      lockedByName: currentProfile.name.split(' ')[0],
+      lockedByColor: getCursorColor(currentProfile)
+    };
+    setElements(prev => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.map(item => item && item.id === el.id ? { ...item, ...lockUpdates } : item).filter(Boolean) as BoardElement[];
+    });
+    db.broadcast('whiteboard_typing', { roomId, elementId: el.id, updates: lockUpdates });
     
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -568,20 +831,24 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
       const xPct = Math.min(95, Math.max(0, (newXPx / rect.width) * 100));
       const yPct = Math.min(95, Math.max(0, (newYPx / rect.height) * 100));
 
-      setElements(prev => prev.map(el => {
-        if (el.id === draggingId) {
-          const updates = { x: xPct, y: yPct };
-          db.broadcast('whiteboard_typing', { roomId, elementId: draggingId, updates });
-          return { ...el, ...updates };
-        }
-        return el;
-      }));
+      setElements(prev => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return safePrev.map(el => {
+          if (el && el.id === draggingId) {
+            const updates = { x: xPct, y: yPct };
+            db.broadcast('whiteboard_typing', { roomId, elementId: draggingId, updates });
+            return { ...el, ...updates };
+          }
+          return el;
+        }).filter(Boolean) as BoardElement[];
+      });
     } else if (rotatingId && drawMode === 'select' && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       
-      const el = elements.find(item => item.id === rotatingId);
+      const safeElements = Array.isArray(elements) ? elements : [];
+      const el = safeElements.find(item => item && item.id === rotatingId);
       if (!el) return;
       
       const elXpx = (el.x / 100) * rect.width;
@@ -595,29 +862,65 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
       const currentAngle = Math.atan2(mouseY - centerY, mouseX - centerX) * (180 / Math.PI);
       const newAngle = (Math.round(rotateStartAngle + currentAngle) + 360) % 360;
       
-      setElements(prev => prev.map(item => {
-        if (item.id === rotatingId) {
-          const updates = { rotate: newAngle };
-          db.broadcast('whiteboard_typing', { roomId, elementId: rotatingId, updates });
-          return { ...item, ...updates };
-        }
-        return item;
-      }));
+      setElements(prev => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return safePrev.map(item => {
+          if (item && item.id === rotatingId) {
+            const updates = { rotate: newAngle };
+            db.broadcast('whiteboard_typing', { roomId, elementId: rotatingId, updates });
+            return { ...item, ...updates };
+          }
+          return item;
+        }).filter(Boolean) as BoardElement[];
+      });
     }
   };
 
   const handleWorkspaceMouseUp = () => {
     if (draggingId) {
-      saveState(elements, strokes, true);
+      const safeElements = Array.isArray(elements) ? elements : [];
+      const cleared = safeElements.map(el => el && el.id === draggingId ? { ...el, lockedBy: null, lockedByName: null, lockedByColor: null } : el).filter(Boolean) as BoardElement[];
+      saveState(cleared, strokes, true);
       setDraggingId(null);
     }
     if (rotatingId) {
-      saveState(elements, strokes, true);
+      const safeElements = Array.isArray(elements) ? elements : [];
+      const cleared = safeElements.map(el => el && el.id === rotatingId ? { ...el, lockedBy: null, lockedByName: null, lockedByColor: null } : el).filter(Boolean) as BoardElement[];
+      saveState(cleared, strokes, true);
       setRotatingId(null);
     }
   };
 
-  const selectedElement = elements.find(el => el.id === selectedId);
+  const handleWorkspaceMouseMoveForCursor = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+    if (xPct >= 0 && xPct <= 100 && yPct >= 0 && yPct <= 100) {
+      localWorkspaceCoordsRef.current = { x: xPct, y: yPct };
+      
+      const now = Date.now();
+      if (now - lastSentRef.current >= 50) {
+        lastSentRef.current = now;
+        broadcastLocalCursor(false);
+      }
+
+      if (trailingTimeoutRef.current) clearTimeout(trailingTimeoutRef.current);
+      trailingTimeoutRef.current = setTimeout(() => {
+        broadcastLocalCursor(false);
+      }, 60);
+    }
+  };
+
+  const handleWorkspaceMouseLeaveForCursor = () => {
+    if (trailingTimeoutRef.current) clearTimeout(trailingTimeoutRef.current);
+    db.broadcast('noticeboard_cursor_leave', {
+      roomId,
+      userId: currentProfile.id
+    });
+  };
+
+  const selectedElement = Array.isArray(elements) ? elements.find(el => el && el.id === selectedId) : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[2000] p-4 backdrop-blur-sm">
@@ -813,6 +1116,8 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
               {/* Scaled Whiteboard Canvas Workspace */}
               <div 
                 className="relative shadow-inner"
+                onMouseMove={handleWorkspaceMouseMoveForCursor}
+                onMouseLeave={handleWorkspaceMouseLeaveForCursor}
                 style={{
                   width: `${workspaceWidth}px`,
                   height: `${workspaceHeight}px`,
@@ -840,10 +1145,12 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                 />
 
                 {/* Elements loop */}
-                {elements.map(el => {
+                {Array.isArray(elements) && elements.map(el => {
+                  if (!el || !el.id) return null;
                   const isSelected = el.id === selectedId;
                   const isEditing = el.id === editingId;
                   const isSticky = el.type === 'sticky';
+                  const isLockedByOther = el.lockedBy && el.lockedBy !== currentProfile.id;
                   
                   const typoStyle: React.CSSProperties = {
                     fontWeight: el.isBold ? 'bold' : 'normal',
@@ -858,11 +1165,22 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                         onMouseDown={(e) => handleElementMouseDown(e, el.id)}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isLockedByOther) return;
                           const dx = Math.abs(e.clientX - dragStartClientPos.x);
                           const dy = Math.abs(e.clientY - dragStartClientPos.y);
                           if (dx < 3 && dy < 3) {
                             if (wasSelectedBeforeDragRef.current) {
                               setEditingId(el.id);
+                              // Broadcast lock for editing
+                              db.broadcast('whiteboard_typing', {
+                                roomId,
+                                elementId: el.id,
+                                updates: {
+                                  lockedBy: currentProfile.id,
+                                  lockedByName: currentProfile.name.split(' ')[0],
+                                  lockedByColor: getCursorColor(currentProfile)
+                                }
+                              });
                             }
                           }
                         }}
@@ -873,6 +1191,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                           minHeight: `${el.height || 96}px`,
                           transform: `rotate(${el.rotate || 0}deg)`,
                           backgroundColor: el.color || '#fffd82',
+                          cursor: isLockedByOther ? 'not-allowed' : 'grab',
                           ...typoStyle
                         }}
                         className={`absolute p-3 shadow-2xl rounded text-slate-900 flex flex-col justify-between cursor-grab select-none z-10 border transition-shadow ${
@@ -880,7 +1199,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                         }`}
                       >
                         {/* Figma controls */}
-                        {isSelected && (
+                        {isSelected && !isLockedByOther && (
                           <>
                             {/* Blue border outline */}
                             <div className="absolute inset-0 outline outline-2 outline-blue-500 pointer-events-none rounded" />
@@ -914,12 +1233,29 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                           </>
                         )}
 
+                        {isLockedByOther && (
+                          <>
+                            {/* Locked outline colored border */}
+                            <div 
+                              style={{ outlineColor: el.lockedByColor || '#f59e0b' }} 
+                              className="absolute inset-0 outline outline-2 outline-dashed pointer-events-none rounded animate-pulse" 
+                            />
+                            {/* Locked label badge */}
+                            <div 
+                              style={{ backgroundColor: el.lockedByColor || '#f59e0b' }}
+                              className="absolute -top-6 left-0 text-[8px] font-sans font-bold text-stone-950 px-1 py-0.5 rounded shadow flex items-center gap-0.5 select-none whitespace-nowrap z-[100]"
+                            >
+                              <span>🔒 {el.lockedByName || 'User'}</span>
+                            </div>
+                          </>
+                        )}
+ 
                         {isEditing ? (
                           <textarea
                             autoFocus
                             value={el.text}
                             onChange={(e) => updateElementProps(el.id, { text: e.target.value }, false)}
-                            onBlur={() => updateElementProps(el.id, {}, true)}
+                            onBlur={() => updateElementProps(el.id, { lockedBy: null, lockedByName: null, lockedByColor: null }, true)}
                             className="w-full h-full bg-black/10 border-none outline-none resize-none p-0 text-slate-950 font-mono font-bold text-xs"
                             style={{ minHeight: '60px' }}
                           />
@@ -938,11 +1274,22 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                         onMouseDown={(e) => handleElementMouseDown(e, el.id)}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isLockedByOther) return;
                           const dx = Math.abs(e.clientX - dragStartClientPos.x);
                           const dy = Math.abs(e.clientY - dragStartClientPos.y);
                           if (dx < 3 && dy < 3) {
                             if (wasSelectedBeforeDragRef.current) {
                               setEditingId(el.id);
+                              // Broadcast lock for editing
+                              db.broadcast('whiteboard_typing', {
+                                roomId,
+                                elementId: el.id,
+                                updates: {
+                                  lockedBy: currentProfile.id,
+                                  lockedByName: currentProfile.name.split(' ')[0],
+                                  lockedByColor: getCursorColor(currentProfile)
+                                }
+                              });
                             }
                           }
                         }}
@@ -953,6 +1300,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                           minHeight: `${el.height || 40}px`,
                           transform: `rotate(${el.rotate || 0}deg)`,
                           color: '#fff',
+                          cursor: isLockedByOther ? 'not-allowed' : 'grab',
                           ...typoStyle
                         }}
                         className={`absolute p-2 cursor-grab select-none z-10 border rounded bg-slate-950/20 whitespace-pre-wrap break-words ${
@@ -960,7 +1308,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                         }`}
                       >
                         {/* Figma controls */}
-                        {isSelected && (
+                        {isSelected && !isLockedByOther && (
                           <>
                             <div className="absolute inset-0 outline outline-2 outline-blue-500 pointer-events-none rounded" />
                             <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-blue-500 rounded-sm pointer-events-none" />
@@ -989,12 +1337,29 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                           </>
                         )}
 
+                        {isLockedByOther && (
+                          <>
+                            {/* Locked outline colored border */}
+                            <div 
+                              style={{ outlineColor: el.lockedByColor || '#f59e0b' }} 
+                              className="absolute inset-0 outline outline-2 outline-dashed pointer-events-none rounded animate-pulse" 
+                            />
+                            {/* Locked label badge */}
+                            <div 
+                              style={{ backgroundColor: el.lockedByColor || '#f59e0b' }}
+                              className="absolute -top-6 left-0 text-[8px] font-sans font-bold text-stone-950 px-1 py-0.5 rounded shadow flex items-center gap-0.5 select-none whitespace-nowrap z-[100]"
+                            >
+                              <span>🔒 {el.lockedByName || 'User'}</span>
+                            </div>
+                          </>
+                        )}
+ 
                         {isEditing ? (
                           <textarea
                             autoFocus
                             value={el.text}
                             onChange={(e) => updateElementProps(el.id, { text: e.target.value }, false)}
-                            onBlur={() => updateElementProps(el.id, {}, true)}
+                            onBlur={() => updateElementProps(el.id, { lockedBy: null, lockedByName: null, lockedByColor: null }, true)}
                             className="w-full bg-slate-900 text-yellow-100 border border-slate-700 outline-none p-1 rounded font-bold resize-none text-[11px]"
                             style={{ minWidth: '100%', minHeight: '32px' }}
                           />
@@ -1006,11 +1371,105 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
                   }
                 })}
 
-                {elements.length === 0 && strokes.length === 0 && (
+                {(!Array.isArray(elements) || elements.filter(el => el && el.id).length === 0) && (!Array.isArray(strokes) || strokes.length === 0) && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 pointer-events-none">
                     <span className="text-3xl mb-1">📋</span>
                     <span className="text-[10px] rpg-font-retro text-amber-500">Notice Board Kosong</span>
                     <span className="text-[8px] text-slate-400">Gunakan toolbar atas untuk menulis dan mendesain kustom!</span>
+                  </div>
+                )}
+
+                {/* Remote Cursors */}
+                {Object.values(remoteCursors).map((cursor) => {
+                  return (
+                    <div
+                      key={cursor.userId}
+                      style={{
+                        left: `${cursor.x}%`,
+                        top: `${cursor.y}%`,
+                        zIndex: 40,
+                        opacity: cursor.isIdle ? 0 : 1,
+                        pointerEvents: 'none',
+                        transition: 'left 0.1s cubic-bezier(0.25, 1, 0.5, 1), top 0.1s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease'
+                      }}
+                      className="absolute pointer-events-none"
+                    >
+                      {/* Cursor SVG */}
+                      <svg
+                        width="14"
+                        height="18"
+                        viewBox="0 0 14 18"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        style={{
+                          filter: 'drop-shadow(1px 2px 2px rgba(0,0,0,0.4))'
+                        }}
+                      >
+                        <path
+                          d="M0 0V16L4.5 11.5L9.5 17.5L12 15.5L7 9.5L13.5 9.5L0 0Z"
+                          fill={cursor.color}
+                          stroke="white"
+                          strokeWidth="1.5"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+
+                      {/* User Name Label */}
+                      <div
+                        style={{ borderColor: cursor.color }}
+                        className="ml-3 mt-1 bg-slate-900/95 text-white text-[8px] font-bold py-0.5 px-1.5 rounded-sm border-l-2 shadow-md flex items-center gap-1 select-none whitespace-nowrap"
+                      >
+                        <span>{cursor.name}</span>
+                      </div>
+
+                      {/* Chat Bubble */}
+                      {cursor.chatBubble && (
+                        <div className="ml-3 mt-1 bg-black/85 text-yellow-100 text-[9px] font-sans font-semibold py-1 px-2.5 rounded-lg border border-slate-700 max-w-[180px] break-words shadow-lg select-none whitespace-pre-wrap leading-tight">
+                          {cursor.chatBubble}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Local Cursor Chat Input Box */}
+                {isChatInputActive && (
+                  <div
+                    style={{
+                      left: `${localWorkspaceCoordsRef.current.x}%`,
+                      top: `${localWorkspaceCoordsRef.current.y}%`,
+                      transform: 'translate(12px, 20px)',
+                      zIndex: 1000
+                    }}
+                    className="absolute pointer-events-auto"
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      value={localCursorChat}
+                      placeholder="Ketik sesuatu..."
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLocalCursorChat(val);
+                        localCoordsRef.current.chatBubble = val;
+                        broadcastLocalCursor(false);
+                      }}
+                      onBlur={() => {
+                        setIsChatInputActive(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') {
+                          e.preventDefault();
+                          setIsChatInputActive(false);
+                          if (e.key === 'Escape') {
+                            setLocalCursorChat('');
+                            localCoordsRef.current.chatBubble = '';
+                            broadcastLocalCursor(false);
+                          }
+                        }
+                      }}
+                      className="bg-slate-900/95 text-white text-[10px] px-2 py-1 border border-amber-500 rounded-full shadow-lg outline-none max-w-[150px] font-sans font-semibold placeholder-slate-400"
+                    />
                   </div>
                 )}
               </div>
@@ -1193,38 +1652,41 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId, currentProfile
 
               {/* Comments List */}
               <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0 text-[10px] no-scrollbar">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="bg-[#181818] border border-[#2c2c2c] rounded p-2 relative group">
-                    <div className="flex justify-between items-start gap-1 mb-1">
-                      {(() => {
-                        const author = profiles?.find(p => p.name === comment.userName);
-                        return (
-                          <span 
-                            className="font-bold truncate block max-w-[120px]" 
-                            style={{ color: author?.sprite_json.nameColor || '#fef08a' }}
-                            title={comment.userName}
-                          >
-                            {comment.userName.split(' ')[0]} <span className="text-[7px] text-slate-500 font-normal">({comment.userRole})</span>
-                          </span>
-                        );
-                      })()}
-                      <button
-                        onClick={() => handleDeleteComment(comment.id)}
-                        className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-[8px]"
-                        title="Hapus Komentar"
-                      >
-                        Hapus
-                      </button>
+                {Array.isArray(comments) && comments.map((comment) => {
+                  if (!comment || !comment.id) return null;
+                  return (
+                    <div key={comment.id} className="bg-[#181818] border border-[#2c2c2c] rounded p-2 relative group">
+                      <div className="flex justify-between items-start gap-1 mb-1">
+                        {(() => {
+                          const author = profiles?.find(p => p.name === comment.userName);
+                          return (
+                            <span 
+                              className="font-bold truncate block max-w-[120px]" 
+                              style={{ color: author?.sprite_json?.nameColor || '#fef08a' }}
+                              title={comment.userName}
+                            >
+                              {comment.userName.split(' ')[0]} <span className="text-[7px] text-slate-500 font-normal">({comment.userRole})</span>
+                            </span>
+                          );
+                        })()}
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-[8px]"
+                          title="Hapus Komentar"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                      <p className="text-slate-300 break-words leading-relaxed whitespace-pre-wrap font-semibold text-[9.5px]">
+                        {comment.text}
+                      </p>
+                      <span className="text-[6px] text-slate-600 block mt-1 font-mono text-right">
+                        {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    <p className="text-slate-300 break-words leading-relaxed whitespace-pre-wrap font-semibold text-[9.5px]">
-                      {comment.text}
-                    </p>
-                    <span className="text-[6px] text-slate-600 block mt-1 font-mono text-right">
-                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                ))}
-                {comments.length === 0 && (
+                  );
+                })}
+                {(!Array.isArray(comments) || comments.length === 0) && (
                   <div className="my-auto text-center opacity-30 py-6 select-none">
                     <span className="text-xl block mb-1">💬</span>
                     <p className="text-[8px] font-semibold">Belum ada komentar. Tulis sesuatu di bawah!</p>

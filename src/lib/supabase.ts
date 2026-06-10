@@ -168,6 +168,53 @@ export interface PresentationState {
   active: boolean;
 }
 
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  rewardXp: number;
+  spreadsheetUrl: string;
+  deadline: string;
+}
+
+
+// ==========================================
+// WEREWOLF PARTY ENGINE TYPES
+// ==========================================
+export type WerewolfRole = 'villager' | 'werewolf' | 'seer' | 'guardian' | 'hunter' | 'cupid';
+export type WerewolfPhase = 'day' | 'night';
+export type WerewolfAwakeRole = 'none' | 'werewolf' | 'seer' | 'guardian';
+export type WerewolfStatus = 'lobby' | 'playing';
+
+export interface WerewolfPlayer {
+  player_id: string;
+  name: string;
+  avatar: { base: string; hair: string; outfit: string; accessory: string };
+  seat_index: number; // which seat slot (0..19) this player occupies
+  role: WerewolfRole;
+  is_alive: boolean;
+  pointing_to: string | null; // player_id or null
+}
+
+export interface WerewolfRoleConfig {
+  werewolves: number;
+  guardians: number;
+  seers: number;
+  has_hunter: boolean;
+  has_cupid: boolean;
+}
+
+export interface WerewolfRoomState {
+  room_id: string;
+  status: WerewolfStatus;
+  moderator_id: string | null;
+  game_phase: WerewolfPhase;
+  active_awake_role: WerewolfAwakeRole;
+  players: WerewolfPlayer[];
+  role_config: WerewolfRoleConfig;
+}
+
 // ==========================================
 // WILDERNESS RAID TYPES
 // ==========================================
@@ -347,7 +394,11 @@ if (isMock) {
 const bc = new BroadcastChannel('rpg_org_realtime');
 
 // Client Tab ID to prevent echoing messages to ourselves
-const clientTabId = Math.random().toString(36).substring(2, 15);
+export const clientTabId = Math.random().toString(36).substring(2, 15);
+
+export const isLocalSender = (payload: any): boolean => {
+  return !!(payload && payload._senderTabId === clientTabId);
+};
 
 // Setup Supabase Realtime Channel if database connection is real (not mock)
 let supabaseChannel: any = null;
@@ -380,6 +431,9 @@ if (!isMock && supabase) {
 
 // Unified Db Handler
 export const db = {
+  isLocalSender(payload: any): boolean {
+    return isLocalSender(payload);
+  },
   // Profiles
   async getProfiles(): Promise<Profile[]> {
     if (!isMock && supabase) {
@@ -394,7 +448,7 @@ export const db = {
   async updateProfile(id: string, updates: Partial<Profile>): Promise<Profile | null> {
     if (!isMock && supabase) {
       const { data, error } = await supabase.from('profiles').update(updates).eq('id', id).select();
-      if (error) console.error(error);
+      if (error) throw error;
       if (data && data[0]) {
         this.broadcast('profile_update', { id, ...updates });
         return data[0];
@@ -738,20 +792,18 @@ export const db = {
 
   async saveWhiteboard(roomId: string, strokes: WhiteboardStroke[], notes: any[], comments: BoardComment[] = []): Promise<boolean> {
     if (!isMock && supabase) {
-      try {
-        const { error } = await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: roomId,
-            strokes,
-            notes,
-            comments,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-        if (error) throw error;
-      } catch (err) {
-        console.error('Failed to save whiteboard to Supabase:', err);
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: roomId,
+          strokes,
+          notes,
+          comments,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save whiteboard to Supabase:', error);
+        });
     }
     const data = JSON.parse(localStorage.getItem('rpg_whiteboard') || '{}');
     data[roomId] = { strokes, notes, comments };
@@ -1354,16 +1406,14 @@ export const db = {
     localStorage.setItem('rpg_wilderness_state', JSON.stringify(state));
     // Persist to Supabase (with full GIF in raid_state JSONB)
     if (!isMock && supabase) {
-      try {
-        await supabase.from('rpg_raid_config').upsert({
-          id: 1,
-          phase: state.phase,
-          raid_state: state,
-          updated_at: new Date().toISOString()
-        });
-      } catch (err) {
-        console.error('saveRaidState Supabase error:', err);
-      }
+      supabase.from('rpg_raid_config').upsert({
+        id: 1,
+        phase: state.phase,
+        raid_state: state,
+        updated_at: new Date().toISOString()
+      }).then(({ error }) => {
+        if (error) console.error('saveRaidState Supabase error:', error);
+      });
     }
     // Broadcast lightweight state (strip GIF to keep payload small for BroadcastChannel)
     const { gifBase64: _gif, ...configWithoutGif } = state.bossConfig;
@@ -1513,18 +1563,16 @@ export const db = {
   async saveTicTacToeState(state: any): Promise<boolean> {
     localStorage.setItem('rpg_tictactoe_state', JSON.stringify(state));
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: 'tictactoe_state',
-            notes: state,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('Failed to save Tic-Tac-Toe state to Supabase:', err);
-        return false;
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: 'tictactoe_state',
+          notes: state,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save Tic-Tac-Toe state to Supabase:', error);
+        });
     }
     this.broadcast('tictactoe_sync', { tttState: state });
     return true;
@@ -1557,18 +1605,16 @@ export const db = {
   async saveChessState(state: any): Promise<boolean> {
     localStorage.setItem('rpg_chess_state', JSON.stringify(state));
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: 'chess_state',
-            notes: state,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('Failed to save Chess state to Supabase:', err);
-        return false;
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: 'chess_state',
+          notes: state,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save Chess state to Supabase:', error);
+        });
     }
     this.broadcast('chess_sync', { chessState: state });
     return true;
@@ -1605,18 +1651,16 @@ export const db = {
     };
     localStorage.setItem('rpg_round_table_music', JSON.stringify(finalState));
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: 'round_table_music',
-            notes: finalState as any,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('Failed to save Round Table music state to Supabase:', err);
-        return false;
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: 'round_table_music',
+          notes: finalState as any,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save Round Table music state to Supabase:', error);
+        });
     }
     this.broadcast('round_table_music_sync', finalState);
     return true;
@@ -1644,18 +1688,16 @@ export const db = {
   async saveGlobalTicker(text: string): Promise<boolean> {
     localStorage.setItem('rpg_global_ticker', text);
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: 'global_ticker',
-            notes: text as any,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('Failed to save global ticker to Supabase:', err);
-        return false;
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: 'global_ticker',
+          notes: text as any,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save global ticker to Supabase:', error);
+        });
     }
     this.broadcast('ticker_update', { text });
     return true;
@@ -1776,17 +1818,16 @@ export const db = {
   async saveTimerState(state: TimerState): Promise<void> {
     localStorage.setItem('rpg_global_timer_state', JSON.stringify(state));
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: 'global_timer_state',
-            notes: state as any,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('saveTimerState error:', err);
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: 'global_timer_state',
+          notes: state as any,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('saveTimerState error:', error);
+        });
     }
     // Broadcast to all clients
     this.broadcast('timer_sync_v2', state);
@@ -1903,17 +1944,16 @@ export const db = {
   async savePresentationState(roomId: string, state: PresentationState): Promise<void> {
     localStorage.setItem(`rpg_presentation_${roomId}`, JSON.stringify(state));
     if (!isMock && supabase) {
-      try {
-        await supabase
-          .from('whiteboard_drawings')
-          .upsert({
-            room_id: `presentation_${roomId}`,
-            notes: state as any,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'room_id' });
-      } catch (err) {
-        console.error('savePresentationState error:', err);
-      }
+      supabase
+        .from('whiteboard_drawings')
+        .upsert({
+          room_id: `presentation_${roomId}`,
+          notes: state as any,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('savePresentationState error:', error);
+        });
     }
     // Broadcast to all clients
     this.broadcast('presentation_sync', { roomId, state });
@@ -1991,6 +2031,106 @@ export const db = {
     const updated = list.filter((item: any) => String(item.id) !== String(id));
     localStorage.setItem('rpg_mock_typing_questions', JSON.stringify(updated));
     this.broadcast('typing_questions_update', {});
+    return true;
+  },
+
+  // ==========================================
+  // WEREWOLF PARTY ENGINE
+  // ==========================================
+  async getWerewolfState(roomId: string): Promise<WerewolfRoomState | null> {
+    if (!isMock && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('werewolf_rooms')
+          .select('state')
+          .eq('room_id', roomId)
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.state) return data.state as WerewolfRoomState;
+      } catch (err) {
+        console.warn('getWerewolfState fallback to localStorage:', err);
+      }
+    }
+    const saved = localStorage.getItem(`rpg_werewolf_${roomId}`);
+    return saved ? JSON.parse(saved) : null;
+  },
+
+  async saveWerewolfState(roomId: string, state: WerewolfRoomState): Promise<void> {
+    localStorage.setItem(`rpg_werewolf_${roomId}`, JSON.stringify(state));
+    if (!isMock && supabase) {
+      supabase
+        .from('werewolf_rooms')
+        .upsert({ room_id: roomId, state, updated_at: new Date().toISOString() }, { onConflict: 'room_id' })
+        .then(({ error }) => {
+          if (error) console.error('saveWerewolfState Supabase error:', error);
+        });
+    }
+    this.broadcast('werewolf_state_sync', { roomId, state });
+  },
+
+  // ==========================================
+  // QUEST BOARD
+  // ==========================================
+  async getQuests(): Promise<Quest[]> {
+    if (!isMock && supabase) {
+      const { data, error } = await supabase
+        .from('rpg_quests')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        difficulty: row.difficulty,
+        rewardXp: row.reward_xp,
+        spreadsheetUrl: row.spreadsheet_url,
+        deadline: row.deadline
+      }));
+    }
+    return JSON.parse(localStorage.getItem('rpg_quests') || '[]');
+  },
+
+  async saveQuest(quest: Quest): Promise<boolean> {
+    if (!isMock && supabase) {
+      const { error } = await supabase
+        .from('rpg_quests')
+        .upsert({
+          id: quest.id,
+          title: quest.title,
+          description: quest.description,
+          difficulty: quest.difficulty,
+          reward_xp: quest.rewardXp,
+          spreadsheet_url: quest.spreadsheetUrl,
+          deadline: quest.deadline,
+          updated_at: new Date().toISOString()
+        });
+      if (error) throw error;
+    }
+    const list = JSON.parse(localStorage.getItem('rpg_quests') || '[]');
+    const idx = list.findIndex((q: any) => q.id === quest.id);
+    if (idx !== -1) {
+      list[idx] = quest;
+    } else {
+      list.push(quest);
+    }
+    localStorage.setItem('rpg_quests', JSON.stringify(list));
+    this.broadcast('quest_update', { quest });
+    return true;
+  },
+
+  async deleteQuest(id: string): Promise<boolean> {
+    if (!isMock && supabase) {
+      const { error } = await supabase
+        .from('rpg_quests')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    }
+    const list = JSON.parse(localStorage.getItem('rpg_quests') || '[]');
+    const filtered = list.filter((q: any) => q.id !== id);
+    localStorage.setItem('rpg_quests', JSON.stringify(filtered));
+    this.broadcast('quest_update', { deletedId: id });
     return true;
   }
 };

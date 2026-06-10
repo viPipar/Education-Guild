@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { WerewolfGame } from './WerewolfGame';
 import type { Profile, Seat, RpgAsset, Rarity, TavernComment, RoomConfig } from '../lib/supabase';
 import { db, isMock, supabase } from '../lib/supabase';
 import { RARITY_CONFIG } from './AssetManager';
@@ -116,6 +117,9 @@ export const Tavern: React.FC<TavernProps> = ({
   // Interactive Modals
   const [showGacha, setShowGacha] = useState(false);
   const [showGame, setShowGame] = useState(false);
+
+  // Werewolf Game
+  const [showWerewolf, setShowWerewolf] = useState(false);
 
   // Gacha state
   const [selectedPack, setSelectedPack] = useState<PackType>('individual');
@@ -485,9 +489,30 @@ export const Tavern: React.FC<TavernProps> = ({
   }, [currentProfile.current_seat_id, spectatorIds]);
 
 
-  // Game Loop autoritatif (hanya berjalan di klien Director)
+  // Determine if the current client is the elected Gartic timer host
+  const isGarticHost = (() => {
+    // If we are Director and present, we are definitely the host
+    const isMeDirector = currentProfile.role === 'Director';
+    const amIPresent = presencePlayers.some(p => p.id === currentProfile.id);
+    
+    // Check if any Director is present in the Tavern
+    const isDirPresent = presencePlayers.some(p => {
+      const prof = profiles.find(pr => pr.id === p.id);
+      return prof?.role === 'Director';
+    });
+
+    if (isDirPresent) {
+      return isMeDirector && amIPresent;
+    }
+
+    // No director present: sort present players alphabetically by ID
+    const sortedPres = [...presencePlayers].sort((a, b) => a.id.localeCompare(b.id));
+    return sortedPres.length > 0 && sortedPres[0].id === currentProfile.id;
+  })();
+
+  // Game Loop authoritative (runs on elected Gartic host)
   useEffect(() => {
-    if (currentProfile.role !== 'Director' || garticState.status !== 'active') {
+    if (!isGarticHost || garticState.status !== 'active') {
       return;
     }
 
@@ -505,7 +530,14 @@ export const Tavern: React.FC<TavernProps> = ({
     }, 1000);
 
     return () => clearInterval(garticTimerIntervalRef.current);
-  }, [garticState.status, garticState.round]);
+  }, [garticState.status, garticState.round, isGarticHost]);
+
+  // Latecomer request canvas sync
+  useEffect(() => {
+    if (activeGameTab === 'gartic' && garticState.status === 'active' && garticState.drawerId !== currentProfile.id) {
+      db.broadcast('gartic_request_canvas_sync', { targetId: currentProfile.id });
+    }
+  }, [activeGameTab, garticState.status, garticState.drawerId]);
 
   const getWordHash = (w: string) => {
     let hash = 0;
@@ -1040,7 +1072,7 @@ export const Tavern: React.FC<TavernProps> = ({
             newLeaderboard[userId] = {
               name: targetProfile ? targetProfile.name : 'Pemain',
               score: score,
-              nameColor: targetProfile?.sprite_json.nameColor
+              nameColor: targetProfile?.sprite_json?.nameColor
             };
           }
           return { ...prev, leaderboard: newLeaderboard };
@@ -1066,6 +1098,31 @@ export const Tavern: React.FC<TavernProps> = ({
             }
           ];
         });
+      } else if (msg.type === 'gartic_request_canvas_sync') {
+        const { targetId } = msg.payload;
+        if (garticStateRef.current.drawerId === currentProfile.id) {
+          const canvas = garticCanvasRef.current;
+          if (canvas) {
+            const dataUrl = canvas.toDataURL();
+            db.broadcast('gartic_canvas_sync', { targetId, dataUrl });
+          }
+        }
+      } else if (msg.type === 'gartic_canvas_sync') {
+        const { targetId, dataUrl } = msg.payload;
+        if (currentProfile.id === targetId) {
+          const canvas = garticCanvasRef.current;
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              const img = new Image();
+              img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+              };
+              img.src = dataUrl;
+            }
+          }
+        }
       } else if (msg.type === 'gartic_config_sync') {
         const config = msg.payload;
         setGarticState(prev => ({
@@ -1234,9 +1291,21 @@ export const Tavern: React.FC<TavernProps> = ({
     });
   };
 
-  const joinGame = (role: 'X' | 'O') => {
+  const joinGame = async (role: 'X' | 'O') => {
     playClick();
-    const newState = { ...tttState };
+    const latestState = await db.getTicTacToeState();
+    const stateToUse = latestState || tttState;
+    
+    if (role === 'X' && stateToUse.playerXId && stateToUse.playerXId !== currentProfile.id) {
+      alert(`Kursi X sudah ditempati oleh ${stateToUse.playerXName || 'pemain lain'}!`);
+      return;
+    }
+    if (role === 'O' && stateToUse.playerOId && stateToUse.playerOId !== currentProfile.id) {
+      alert(`Kursi O sudah ditempati oleh ${stateToUse.playerOName || 'pemain lain'}!`);
+      return;
+    }
+
+    const newState = { ...stateToUse };
     if (role === 'X') {
       newState.playerXId = currentProfile.id;
       newState.playerXName = currentProfile.name.split(' ')[0];
@@ -1294,9 +1363,21 @@ export const Tavern: React.FC<TavernProps> = ({
   };
 
   // Chess handlers
-  const joinChess = (role: 'white' | 'black') => {
+  const joinChess = async (role: 'white' | 'black') => {
     playClick();
-    const newState = { ...chessState };
+    const latestState = await db.getChessState();
+    const stateToUse = latestState || chessState;
+
+    if (role === 'white' && stateToUse.playerWhiteId && stateToUse.playerWhiteId !== currentProfile.id) {
+      alert(`Kursi Putih sudah ditempati oleh ${stateToUse.playerWhiteName || 'pemain lain'}!`);
+      return;
+    }
+    if (role === 'black' && stateToUse.playerBlackId && stateToUse.playerBlackId !== currentProfile.id) {
+      alert(`Kursi Hitam sudah ditempati oleh ${stateToUse.playerBlackName || 'pemain lain'}!`);
+      return;
+    }
+
+    const newState = { ...stateToUse };
     if (role === 'white') {
       newState.playerWhiteId = currentProfile.id;
       newState.playerWhiteName = currentProfile.name.split(' ')[0];
@@ -2102,6 +2183,24 @@ export const Tavern: React.FC<TavernProps> = ({
               )}
             </div>
 
+            {/* ── WEREWOLF DOOR BUTTON (inside rpg-panel scene, bottom-right) ── */}
+            <button
+              id="tavern-werewolf-door-btn"
+              onClick={() => { playClick(); setShowWerewolf(true); }}
+              style={{ right: '1.5%', bottom: '5%' }}
+              className="absolute z-30 group flex flex-col items-center gap-1 cursor-pointer"
+              title="Masuk ke Ruang Werewolf 🐺"
+            >
+              <div className="absolute inset-0 rounded-xl bg-amber-500/20 blur-lg group-hover:bg-amber-400/35 transition-all duration-300 scale-125" />
+              <div className="relative w-11 h-14 rounded-lg border-2 border-amber-700/80 bg-gradient-to-b from-[#3d1f02] to-[#1c0d00] shadow-xl group-hover:border-amber-400 group-hover:shadow-[0_0_12px_rgba(251,191,36,0.4)] transition-all duration-200 group-hover:scale-110 active:scale-95 flex flex-col items-center justify-center gap-0.5 overflow-hidden">
+                <div className="absolute inset-x-1.5 top-1.5 bottom-1.5 border border-amber-900/40 rounded-sm" />
+                <div className="absolute inset-x-2 top-3 h-px bg-amber-900/30" />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(251,191,36,0.9)]" />
+                <span className="text-lg z-10" style={{ filter: 'drop-shadow(0 0 5px rgba(251,191,36,0.7))' }}>🐺</span>
+              </div>
+              <span className="text-[6px] font-bold text-amber-500/80 uppercase tracking-widest group-hover:text-amber-400 transition-colors whitespace-nowrap">🚪 Pintu</span>
+            </button>
+
             </div>
           </div>
 
@@ -2606,7 +2705,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     <span className="block text-[8px] text-blue-400 font-bold">PLAYER 1 (X)</span>
                     <span 
                       className="font-bold text-[10px]"
-                      style={{ color: playerXProfile?.sprite_json.nameColor || '#fafaf9' }}
+                      style={{ color: playerXProfile?.sprite_json?.nameColor || '#fafaf9' }}
                     >
                       {tttState.playerXName || 'Kosong'}
                     </span>
@@ -2623,7 +2722,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     <span className="block text-[8px] text-red-400 font-bold">PLAYER 2 (O)</span>
                     <span 
                       className="font-bold text-[10px]"
-                      style={{ color: playerOProfile?.sprite_json.nameColor || '#fafaf9' }}
+                      style={{ color: playerOProfile?.sprite_json?.nameColor || '#fafaf9' }}
                     >
                       {tttState.playerOName || 'Kosong'}
                     </span>
@@ -2717,7 +2816,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     <span className="block text-[8px] text-amber-300 font-bold">PUTIH (WHITE)</span>
                     <span 
                       className="font-bold text-[10px]"
-                      style={{ color: playerWhiteProfile?.sprite_json.nameColor || '#fafaf9' }}
+                      style={{ color: playerWhiteProfile?.sprite_json?.nameColor || '#fafaf9' }}
                     >
                       {chessState.playerWhiteName || 'Kosong'}
                     </span>
@@ -2734,7 +2833,7 @@ export const Tavern: React.FC<TavernProps> = ({
                     <span className="block text-[8px] text-stone-400 font-bold">HITAM (BLACK)</span>
                     <span 
                       className="font-bold text-[10px]"
-                      style={{ color: playerBlackProfile?.sprite_json.nameColor || '#eab308' }}
+                      style={{ color: playerBlackProfile?.sprite_json?.nameColor || '#eab308' }}
                     >
                       {chessState.playerBlackName || 'Kosong'}
                     </span>
@@ -3404,6 +3503,14 @@ export const Tavern: React.FC<TavernProps> = ({
       )}
 
 
+      {/* ── WEREWOLF GAME OVERLAY ── */}
+      {showWerewolf && (
+        <WerewolfGame
+          currentProfile={currentProfile}
+          profiles={profiles}
+          onExit={() => setShowWerewolf(false)}
+        />
+      )}
 
     </div>
   );

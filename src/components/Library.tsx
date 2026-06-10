@@ -171,6 +171,7 @@ export const Library: React.FC<LibraryProps> = ({ currentProfile }) => {
       const compressedBase64 = await compressImage(file, 800, 0.6);
 
       if (isBoard) {
+        const latestPhotos = await db.getMemoryBoard(activeBoardId!);
         const newPhoto: MemoryPhoto = {
           id: 'photo_' + Date.now(),
           uploader: currentProfile.name,
@@ -181,7 +182,7 @@ export const Library: React.FC<LibraryProps> = ({ currentProfile }) => {
           y: 25 + Math.random() * 12,
           rotate: Math.round(Math.random() * 12 - 6) // random subtle rotation
         };
-        const updated = [...boardPhotos, newPhoto];
+        const updated = [...latestPhotos, newPhoto];
         setBoardPhotos(updated);
         await db.saveMemoryBoard(activeBoardId!, updated);
       } else if (selectedLog) {
@@ -245,8 +246,17 @@ export const Library: React.FC<LibraryProps> = ({ currentProfile }) => {
 
   const handleBoardMouseUp = async () => {
     if (draggingPhotoId) {
+      const targetId = draggingPhotoId;
       setDraggingPhotoId(null);
-      await db.saveMemoryBoard(activeBoardId!, boardPhotos);
+      const latestPhotos = await db.getMemoryBoard(activeBoardId!);
+      const draggedPhotoLocal = boardPhotos.find(p => p.id === targetId);
+      if (draggedPhotoLocal) {
+        const updated = latestPhotos.map(p => 
+          p.id === targetId ? { ...p, x: draggedPhotoLocal.x, y: draggedPhotoLocal.y } : p
+        );
+        setBoardPhotos(updated);
+        await db.saveMemoryBoard(activeBoardId!, updated);
+      }
     }
   };
 
@@ -257,14 +267,20 @@ export const Library: React.FC<LibraryProps> = ({ currentProfile }) => {
   const handleSavePolaroidCaption = async (photoId: string) => {
     const target = boardPhotos.find(p => p.id === photoId);
     if (target) {
-      await db.saveMemoryBoard(activeBoardId!, boardPhotos);
+      const latestPhotos = await db.getMemoryBoard(activeBoardId!);
+      const updated = latestPhotos.map(p => 
+        p.id === photoId ? { ...p, caption: target.caption } : p
+      );
+      setBoardPhotos(updated);
+      await db.saveMemoryBoard(activeBoardId!, updated);
     }
   };
 
   const handleDeletePolaroid = async (photoId: string) => {
     if (window.confirm('Apakah Anda ingin membuang foto Polaroid ini dari papan memori?')) {
       playClick();
-      const updated = boardPhotos.filter(p => p.id !== photoId);
+      const latestPhotos = await db.getMemoryBoard(activeBoardId!);
+      const updated = latestPhotos.filter(p => p.id !== photoId);
       setBoardPhotos(updated);
       await db.saveMemoryBoard(activeBoardId!, updated);
     }
